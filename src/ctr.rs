@@ -6,19 +6,19 @@ use std::convert::AsRef;
 use ndarray::Array3;
 use pssm::BasePos;
 
-#[derive(Debug,Clone)]
+#[derive(Debug, Clone)]
 pub struct GappedKmerCtr {
-    pub ctr:       Array3<usize>,
-    pub kmer_len:  usize,
-    pub min_gap:   usize,
-    pub max_gap:   usize,
+    pub ctr: Array3<usize>,
+    pub kmer_len: usize,
+    pub min_gap: usize,
+    pub max_gap: usize,
 }
 
 impl GappedKmerCtr {
     /// simple bitshifting conversion of sequences to integer
     /// note that this only makes sense for fixed-width kmers, as, eg,
     /// kmer_to_int(b"A") == kmer_to_int(b"AA") == kmer_to_int(b"AAA") == 0
-    pub fn kmer_to_int( kmer: &[u8] ) -> usize {
+    pub fn kmer_to_int(kmer: &[u8]) -> usize {
         let mut val: usize = 0;
         for b in kmer.iter() {
             val <<= 2;
@@ -27,13 +27,13 @@ impl GappedKmerCtr {
         val
     }
 
-    /// 
-    pub fn int_to_kmer( kmer_len: usize, i: usize ) -> Vec<u8> {
+    ///
+    pub fn int_to_kmer(kmer_len: usize, i: usize) -> Vec<u8> {
         let mut kmer: Vec<u8> = Vec::new();
         let mut val = i;
-        for _ in 0 .. kmer_len {
-            kmer.push( BasePos::put( val & 0b11 ) );
-            val >>= 2;                
+        for _ in 0..kmer_len {
+            kmer.push(BasePos::put(val & 0b11));
+            val >>= 2;
         }
         kmer.reverse();
         kmer
@@ -42,25 +42,29 @@ impl GappedKmerCtr {
     pub fn new(kmer_len: usize, min_gap: usize, max_gap: usize) -> GappedKmerCtr {
         let len: usize = 4usize.pow(kmer_len as u32);
         GappedKmerCtr {
-            ctr:       Array3::zeros((len, len, max_gap - min_gap + 1)),
-            kmer_len:  kmer_len,
-            min_gap:   min_gap,
-            max_gap:   max_gap,
+            ctr: Array3::zeros((len, len, max_gap - min_gap + 1)),
+            kmer_len: kmer_len,
+            min_gap: min_gap,
+            max_gap: max_gap,
         }
     }
 
     /// eg, foo.get(b"ATGC", b"TTCA", 0) -> 10
     pub fn get(&self, kmer1: &[u8], kmer2: &[u8], gap: usize) -> usize {
-        self.ctr[ [GappedKmerCtr::kmer_to_int(kmer1),
-                   GappedKmerCtr::kmer_to_int(kmer2),
-                   gap] ]
+        self.ctr[[
+            GappedKmerCtr::kmer_to_int(kmer1),
+            GappedKmerCtr::kmer_to_int(kmer2),
+            gap,
+        ]]
     }
 
     /// increment cell and return new value
     pub fn incr(&mut self, kmer1: &[u8], kmer2: &[u8], gap: usize) -> usize {
-        let idx = [GappedKmerCtr::kmer_to_int(kmer1),
-                   GappedKmerCtr::kmer_to_int(kmer2),
-                   gap];
+        let idx = [
+            GappedKmerCtr::kmer_to_int(kmer1),
+            GappedKmerCtr::kmer_to_int(kmer2),
+            gap,
+        ];
         self.ctr[idx] += 1;
         self.ctr[idx]
     }
@@ -72,11 +76,13 @@ impl GappedKmerCtr {
         let min_gap = self.min_gap;
         let max_gap = self.max_gap;
 
-        for gap in min_gap .. max_gap + 1 {
-            for i in 0 .. 1 + seq.len() - (2 * kmer_len + gap) {
-                self.incr( &seq[i .. i + kmer_len],
-                           &seq[i + kmer_len + gap .. i + 2 * kmer_len + gap],
-                           gap - min_gap );
+        for gap in min_gap..max_gap + 1 {
+            for i in 0..1 + seq.len() - (2 * kmer_len + gap) {
+                self.incr(
+                    &seq[i..i + kmer_len],
+                    &seq[i + kmer_len + gap..i + 2 * kmer_len + gap],
+                    gap - min_gap,
+                );
             }
         }
     }
@@ -116,14 +122,16 @@ mod tests {
 
         assert_eq!(ctr.get(b"TGC", b"CGG", 0), 1);
 
-        for i in 0 .. 64 {
-            for j in 0 .. 64 {
-                assert_eq!( ctr.ctr[[i,j,0]],
-                            match (i, j) {
-                                (27, 58) => 1,
-                                (44, 41) => 1,
-                                _ => 0
-                            } );
+        for i in 0..64 {
+            for j in 0..64 {
+                assert_eq!(
+                    ctr.ctr[[i, j, 0]],
+                    match (i, j) {
+                        (27, 58) => 1,
+                        (44, 41) => 1,
+                        _ => 0,
+                    }
+                );
             }
         }
     }
