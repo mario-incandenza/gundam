@@ -86,49 +86,49 @@ impl<'a> DyadMotif<'a> {
         println!("processing neg");
         let neg = fasta_to_ctr(neg_fname);
 
-        let (width, height, _) = pos.ctr.dim();
+        let (width, height, gap) = pos.ctr.dim();
         let mut dyads = Vec::new();
         for i in 0..width {
             for j in 0..height {
-                if pos.ctr[[i, j, 0]] > neg.ctr[[i, j, 0]] {
-                    //println!("({},{}) - {} > {}", i, j, pos.ctr[[i, j, 0]], neg.ctr[[i, j, 0]]);
-                }
+                for k in 0..gap {
+                    if pos.ctr[[i, j, k]] > neg.ctr[[i, j, k]] &&
+                        pos.ctr[[i, j, k]] - neg.ctr[[i, j, k]] >= 100
+                    /*200*/
+                    {
 
-                if pos.ctr[[i, j, 0]] > neg.ctr[[i, j, 0]] &&
-                    pos.ctr[[i, j, 0]] - neg.ctr[[i, j, 0]] >= 100
-                /*200*/
-                {
+                        let init = Motif::from(kmers_to_matrix(
+                            GappedKmerCtr::int_to_kmer(KMER_LEN, i).as_slice(),
+                            k,
+                            GappedKmerCtr::int_to_kmer(KMER_LEN, j).as_slice(),
+                        ));
 
-                    let init = Motif::from(kmers_to_matrix(
-                        GappedKmerCtr::int_to_kmer(KMER_LEN, i).as_slice(),
-                        GAP_LEN,
-                        GappedKmerCtr::int_to_kmer(KMER_LEN, j).as_slice(),
-                    ));
+                        if init.min_score == init.max_score {
+                            println!(
+                                "{}.....{}",
+                                String::from_utf8(GappedKmerCtr::int_to_kmer(KMER_LEN, i))
+                                    .expect("AA"),
+                                String::from_utf8(GappedKmerCtr::int_to_kmer(KMER_LEN, j))
+                                    .expect("BB")
+                            );
+                            continue;
+                        }
 
-                    if init.min_score == init.max_score {
+                        let copy = init.clone();
+
                         println!(
                             "{}.....{}",
                             String::from_utf8(GappedKmerCtr::int_to_kmer(KMER_LEN, i)).expect("AA"),
                             String::from_utf8(GappedKmerCtr::int_to_kmer(KMER_LEN, j)).expect("BB")
                         );
-                        continue;
+
+                        dyads.push(DyadMotif {
+                            init: init,
+                            motif: copy,
+                            ctr: GappedKmerCtr::new(KMER_LEN, 0, GAP_LEN),
+                            pos_fname: pos_fname,
+                            neg_fname: neg_fname,
+                        });
                     }
-
-                    let copy = init.clone();
-
-                    println!(
-                        "{}.....{}",
-                        String::from_utf8(GappedKmerCtr::int_to_kmer(KMER_LEN, i)).expect("AA"),
-                        String::from_utf8(GappedKmerCtr::int_to_kmer(KMER_LEN, j)).expect("BB")
-                    );
-
-                    dyads.push(DyadMotif {
-                        init: init,
-                        motif: copy,
-                        ctr: GappedKmerCtr::new(KMER_LEN, 0, GAP_LEN),
-                        pos_fname: pos_fname,
-                        neg_fname: neg_fname,
-                    });
                 }
             }
         }
@@ -204,8 +204,8 @@ fn crossover_motifs(
             (x, o)
         } else {
             let x = theirs.score(&seq[s.loc..s.loc + pwm_len]).expect(
-                    "couldn't score slice (2)",
-                );
+                "couldn't score slice (2)",
+            );
             (s, x)
         }
     }
@@ -214,11 +214,23 @@ fn crossover_motifs(
     let pwm_len = mine.len();
     pos_seqs.split_iter_mut().for_each(&pool.spawner(), |t| {
         let scores = max_slice(pwm_len, mine, theirs, t.0.as_slice());
+        println!(
+            "pos ({}): {:?} -> {}",
+            str::from_utf8(mine.degenerate_consensus().as_slice()).unwrap(),
+            str::from_utf8(&t.0[scores.0.loc..scores.0.loc + pwm_len]).unwrap(),
+            scores.0.sum
+        );
         t.1 = scores.0;
         t.2 = scores.1;
     });
     neg_seqs.split_iter_mut().for_each(&pool.spawner(), |t| {
         let scores = max_slice(pwm_len, mine, theirs, t.0.as_slice());
+        println!(
+            "neg ({}): {:?} -> {}",
+            str::from_utf8(mine.degenerate_consensus().as_slice()).unwrap(),
+            str::from_utf8(&t.0[scores.0.loc..scores.0.loc + pwm_len]).unwrap(),
+            scores.0.sum
+        );
         t.1 = scores.0;
         t.2 = scores.1;
     });
@@ -345,7 +357,7 @@ impl<'a> Individual for DyadMotif<'a> {
             &mut self.motif,
             &mut other.motif,
             self.pos_fname,
-            other.pos_fname,
+            self.neg_fname,
         );
 
         DyadMotif {
@@ -424,7 +436,7 @@ mod tests {
         for dyad in DyadMotif::motifs("pos.fa", "neg.fa", MOTIF.len(), 1000) {
 
             println!("-- motif: {:?}", &dyad.motif);
-            
+
             // make an initial population of 100 copies of the motif
             let mut init = (0..100).map(|_| dyad.clone()).collect::<Vec<DyadMotif>>();
             for ind in init.iter_mut() {
@@ -456,7 +468,10 @@ mod tests {
                     my_simulation.run(&selector);
 
                     println!("total run time: {} ms", my_simulation.total_time_in_ms);
-                    println!("very fittest: {}", my_simulation.simulation_result.fittest[0].fitness);
+                    println!(
+                        "very fittest: {}",
+                        my_simulation.simulation_result.fittest[0].fitness
+                    );
                     println!(
                         "improvement factor: {}",
                         my_simulation.simulation_result.improvement_factor
