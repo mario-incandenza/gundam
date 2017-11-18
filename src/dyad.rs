@@ -1,4 +1,4 @@
-use jobsteal::{make_pool, BorrowSpliteratorMut, Spliterator, Pool};
+use jobsteal::{make_pool, BorrowSpliterator, Spliterator, Pool};
 use std::f64;
 use std::str;
 use darwin_rs::{Individual, SimulationBuilder, Population, PopulationBuilder};
@@ -15,17 +15,17 @@ use ctr::*;
 use super::*;
 
 #[derive(Debug, Clone)]
-pub struct DyadMotif<'a> {
+pub struct DyadMotif {
     /// initial state based on kmers
     init: Motif,
     /// weights updated by GA
     motif: Motif,
     /// kmer counts
     ctr: GappedKmerCtr,
-    /// sequences containing the motif
-    pos_fname: &'a str,
-    /// sequences without the motif
-    neg_fname: &'a str,
+    /// sequences matching our motif
+    pos_seqs: Vec<Vec<u8>>,
+    /// sequences representing background
+    neg_seqs: Vec<Vec<u8>>,
 }
 
 fn fasta_to_ctr(fname: &str) -> GappedKmerCtr {
@@ -60,18 +60,22 @@ pub fn kmers_to_matrix(kmer1: &[u8], gap_len: usize, kmer2: &[u8]) -> Array2<f32
     m
 }
 
-impl<'a> DyadMotif<'a> {
-    pub fn motifs(
-        pos_fname: &'a str,
-        neg_fname: &'a str,
+impl DyadMotif {
+    pub fn motifs<F>(
+        pos_fname: &str,
+        neg_fname: &str,
         width: usize,
         count: usize,
-    ) -> Vec<DyadMotif<'a>> {
+        chooser: F,
+    ) -> Vec<DyadMotif>
+where F: Fn(&mut Vec<(Vec<u8>, f64)>, &mut Vec<(Vec<u8>, f64)>) -> (Vec<Vec<u8>>, Vec<Vec<u8>>) {
 
         println!("processing pos");
         let pos = fasta_to_ctr(pos_fname);
         println!("processing neg");
         let neg = fasta_to_ctr(neg_fname);
+
+        let mut pool = make_pool(3).unwrap();
 
         let (width, height, gap) = pos.ctr.dim();
         let mut dyads = Vec::new();
@@ -108,12 +112,16 @@ impl<'a> DyadMotif<'a> {
                             String::from_utf8(GappedKmerCtr::int_to_kmer(KMER_LEN, j)).expect("BB")
                         );
 
+                        let mut pos_v = DyadMotif::eval_file(&mut pool, &copy, pos_fname);
+                        let mut neg_v = DyadMotif::eval_file(&mut pool, &copy, neg_fname);
+                        let (pos_seqs, neg_seqs) = chooser(&mut pos_v, &mut neg_v);
+
                         dyads.push(DyadMotif {
                             init: init,
                             motif: copy,
                             ctr: GappedKmerCtr::new(KMER_LEN, 0, GAP_LEN),
-                            pos_fname: pos_fname,
-                            neg_fname: neg_fname,
+                            pos_seqs: pos_seqs,
+                            neg_seqs: neg_seqs,
                         });
                     }
                 }
@@ -122,7 +130,38 @@ impl<'a> DyadMotif<'a> {
         dyads
     }
 
-    /// 
+    /// apply motif to sequences in a FASTA file, returning sequences and scores
+    fn eval_file(pool: &mut Pool, motif: &Motif, fname: &str) -> Vec<(Vec<u8>, f64)> {
+
+        // FIXME: b/c we wind up re-analyzing these files again and again,
+        // we should probably just read into memory once and be done w/ it
+        let mut v = Vec::new();
+        for _rec in fasta::Reader::from_file(fname)
+            .expect(format!("couldn't open {}", fname).as_str())
+            .records()
+        {
+            let rec = _rec.expect("unwrap record");
+            v.push((rec.seq().to_vec(), 0.0));
+        }
+
+        if v.len() == 0 {
+            panic!("empty file: {}", fname);
+        }
+
+        v.split_iter_mut().for_each(&pool.spawner(), |p| {
+
+            match motif.score(&p.0) {
+                //Some((_, score)) if score >= MIN_SCORE => pos_pass += 1,
+                Some(ScoredPos { ref sum, .. }) => {
+                    p.1 = *sum as f64;
+                }
+                _ => (),
+            }
+        });
+        v
+    }
+
+    ///
     pub fn refine(&self, pos_fname: &str, neg_fname: &str, mut_ct: usize) {
         println!("-- motif: {:?}", self.motif);
 
@@ -316,7 +355,7 @@ fn crossover_motifs(
     Motif::from(new_m)
 }
 
-impl<'a> Individual for DyadMotif<'a> {
+impl Individual for DyadMotif {
     const CAN_CROSSOVER: bool = false;
 
     /// shift value at each position
@@ -334,48 +373,28 @@ impl<'a> Individual for DyadMotif<'a> {
         self.motif.calc_minmax();
     }
 
+
     fn calculate_fitness(&mut self) -> f64 {
         // Calculate how good the data values are compared to the perfect solution
 
         let mut pool = make_pool(3).unwrap();
 
-        fn eval_file(pool: &mut Pool, motif: &Motif, fname: &str) -> f64 {
+        let pos_sum: f64 = self.pos_seqs.clone()
+            .split_iter()
+            .map(|seq| self.motif.score(&seq).expect("score?").sum as f64)
+            .collect::<Vec<f64>>(&pool.spawner())
+            .iter()
+            .sum();
+        let pos: f64 = pos_sum / self.pos_seqs.len() as f64;
 
-            // FIXME: b/c we wind up re-analyzing these files again and again,
-            // we should probably just read into memory once and be done w/ it
-            let mut v = Vec::new();
-            for _rec in fasta::Reader::from_file(fname)
-                .expect(format!("couldn't open {}", fname).as_str())
-                .records()
-            {
-                let rec = _rec.expect("unwrap record");
-                v.push((rec.seq().to_vec(), 0.0));
-            }
 
-            if v.len() == 0 {
-                panic!("empty file: {}", fname);
-            }
-
-            v.split_iter_mut().for_each(&pool.spawner(), |p| {
-
-                match motif.score(&p.0) {
-                    //Some((_, score)) if score >= MIN_SCORE => pos_pass += 1,
-                    Some(ScoredPos { ref sum, .. }) => {
-                        p.1 = *sum as f64;
-                    }
-                    _ => (),
-                }
-            });
-
-            let pos_score: f64 = v.iter().map(|&(_, score)| score).sum();
-            let pos_ct = v.len();
-
-            (pos_score / pos_ct as f64)
-        }
-
-        let pos = eval_file(&mut pool, &self.motif, self.pos_fname);
-        let neg = eval_file(&mut pool, &self.motif, self.neg_fname);
-
+        let neg_sum: f64 = self.neg_seqs.clone()
+            .split_iter()
+            .map(|seq| self.motif.score(&seq).expect("score?").sum as f64)
+            .collect::<Vec<f64>>(&pool.spawner())
+            .iter()
+            .sum();
+        let neg: f64 = neg_sum / self.neg_seqs.len() as f64;
         //println!("fitness (motif[0]={:?}): {}", [self.motif.scores[[0,0]], self.motif.scores[[0,1]]], neg / pos);
 
         if pos == 0.0 {
@@ -398,6 +417,7 @@ impl<'a> Individual for DyadMotif<'a> {
 
 
     fn crossover(&mut self, other: &mut Self) -> Self {
+/* FIXME
         let new_motif = crossover_motifs(
             &mut self.motif,
             &mut other.motif,
@@ -411,13 +431,28 @@ impl<'a> Individual for DyadMotif<'a> {
             ctr: self.ctr.clone(),
             pos_fname: self.pos_fname,
             neg_fname: self.neg_fname,
-        }
+        }*/
+    self.clone()
     }
 }
 
 fn find_motifs(pos_fname: &str, neg_fname: &str, max_len: usize) {
     let indiv_ct = 100;
-    for dyad in DyadMotif::motifs(pos_fname, neg_fname, max_len, indiv_ct) {
+
+    fn choose(pos_v: &mut Vec<(Vec<u8>, f64)>, neg_v: &mut Vec<(Vec<u8>, f64)>) -> (Vec<Vec<u8>>, Vec<Vec<u8>>) {
+        pos_v.sort_by(|&(_, score_a), &(_, score_b)| {
+            score_b.partial_cmp(&score_a).expect("float sort")
+        });
+        neg_v.sort_by(|&(_, score_a), &(_, score_b)| {
+            score_b.partial_cmp(&score_a).expect("float sort")
+        });
+        (
+            pos_v.iter().map(|&(ref s, _)| s.clone()).take(100).collect(),
+            neg_v.iter().map(|&(ref s, _)| s.clone()).take(100).collect()
+        )
+    }
+
+    for dyad in DyadMotif::motifs(pos_fname, neg_fname, max_len, indiv_ct, choose) {
         dyad.refine(pos_fname, neg_fname, 100);
     }
 }
@@ -430,7 +465,7 @@ mod tests {
     const MOTIF: &'static [u8] = b"GGCCTAGCCATG";
     const POS_FNAME: &'static str = "pos.fa";
     const NEG_FNAME: &'static str = "neg.fa";
-    
+
     #[test]
     #[ignore]
     fn kmers_to_m() {
@@ -484,10 +519,23 @@ mod tests {
         println!("score for present: {:?}", motif.score(b"GGAACGAAGTCCGTAGGGTCCATAGGAAAACCACTATGGGGCAGGATAATCATTAAAGGTCACTCGGTCGAGGCACAGATTGTGAGGAAGATGTAGGGGACCGTCGTTAAACCTAACGGACGGCTACACGGTTGTTGAAATGTCCCCCCCTTTTGCATTTTTCCTATGGGCGGCGACATAAAACTCGCAGACGAAGTTGGATATCTCCCGAATACGTGGACCGGCAGCATAACCAGACAAACGGGTAACTAACGTATGAGTGTGTCCAGCCACCATCCATAGGAAGTCCCATGAGTGAGCTTGATGATGTGAGGGCATGACATGTGCGGAAAACGAAGAACTAGGACCATAATGCAGGGCGACCTGCGCTCGAAACTCTGGATTACCATTTCCGCGGCCTAATATGGATCTCCTGTGTCTCGGATCCTTCAGGTCGACGTTCGGATCATACATGGGACTACAACGTGTCGATAGACCGCCAGACCTACACAAAGCATGCA"));
     }
 
+    fn choose(pos_v: &mut Vec<(Vec<u8>, f64)>, neg_v: &mut Vec<(Vec<u8>, f64)>) -> (Vec<Vec<u8>>, Vec<Vec<u8>>) {
+        pos_v.sort_by(|&(_, score_a), &(_, score_b)| {
+            score_b.partial_cmp(&score_a).expect("float sort")
+        });
+        neg_v.sort_by(|&(_, score_a), &(_, score_b)| {
+            score_b.partial_cmp(&score_a).expect("float sort")
+        });
+        (
+            pos_v.iter().map(|&(ref s, _)| s.clone()).take(100).collect(),
+            neg_v.iter().map(|&(ref s, _)| s.clone()).take(100).collect()
+        )
+    }
+
     #[test]
     fn test_find() {
         let indiv_ct = 100;
-        let dyads = DyadMotif::motifs(POS_FNAME, NEG_FNAME, MOTIF.len(), indiv_ct);
+        let dyads = DyadMotif::motifs(POS_FNAME, NEG_FNAME, MOTIF.len(), indiv_ct, choose);
         dyads[0].refine(POS_FNAME, NEG_FNAME, 100);
     }
 

@@ -39,7 +39,7 @@ mod tests {
     const MOTIF: &'static [u8] = b"GGCCTAGCCATG";
     const POS_FNAME: &'static str = "pos.fa";
     const NEG_FNAME: &'static str = "neg.fa";
-    
+
     #[test]
     #[ignore]
     fn kmers_to_m() {
@@ -93,10 +93,23 @@ mod tests {
         println!("score for present: {:?}", motif.score(b"GGAACGAAGTCCGTAGGGTCCATAGGAAAACCACTATGGGGCAGGATAATCATTAAAGGTCACTCGGTCGAGGCACAGATTGTGAGGAAGATGTAGGGGACCGTCGTTAAACCTAACGGACGGCTACACGGTTGTTGAAATGTCCCCCCCTTTTGCATTTTTCCTATGGGCGGCGACATAAAACTCGCAGACGAAGTTGGATATCTCCCGAATACGTGGACCGGCAGCATAACCAGACAAACGGGTAACTAACGTATGAGTGTGTCCAGCCACCATCCATAGGAAGTCCCATGAGTGAGCTTGATGATGTGAGGGCATGACATGTGCGGAAAACGAAGAACTAGGACCATAATGCAGGGCGACCTGCGCTCGAAACTCTGGATTACCATTTCCGCGGCCTAATATGGATCTCCTGTGTCTCGGATCCTTCAGGTCGACGTTCGGATCATACATGGGACTACAACGTGTCGATAGACCGCCAGACCTACACAAAGCATGCA"));
     }
 
+    fn choose(pos_v: &mut Vec<(Vec<u8>, f64)>, neg_v: &mut Vec<(Vec<u8>, f64)>) -> (Vec<Vec<u8>>, Vec<Vec<u8>>) {
+        pos_v.sort_by(|&(_, score_a), &(_, score_b)| {
+            score_b.partial_cmp(&score_a).expect("float sort")
+        });
+        neg_v.sort_by(|&(_, score_a), &(_, score_b)| {
+            score_b.partial_cmp(&score_a).expect("float sort")
+        });
+        (
+            pos_v.iter().map(|&(ref s, _)| s.clone()).take(100).collect(),
+            neg_v.iter().map(|&(ref s, _)| s.clone()).take(100).collect()
+        )
+    }
+
     #[test]
     fn test_find() {
         let indiv_ct = 100;
-        let dyads = DyadMotif::motifs(POS_FNAME, NEG_FNAME, MOTIF.len(), indiv_ct);
+        let dyads = DyadMotif::motifs(POS_FNAME, NEG_FNAME, MOTIF.len(), indiv_ct, choose);
         dyads[0].refine(POS_FNAME, NEG_FNAME, 100);
     }
 
