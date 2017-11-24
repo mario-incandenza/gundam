@@ -3,6 +3,10 @@ name = "gundam"
 version = "0.1.0"
 authors = ["mario incandenza"]
 
+[[bin]]
+name = "gundam"
+path = "src/main.rs"
+
 [dependencies]
 darwin-rs = { path = "../darwin-rs" }
 pssm = { path = "../rust-pssm" }

@@ -25,9 +25,10 @@ use ctr::*;
 pub mod dyad;
 use dyad::*;
 
+pub use dyad::find_motifs;
 
 const KMER_LEN: usize = 5;
-const GAP_LEN: usize = 4;
+const GAP_LEN: usize = 6;
 const MUT_INCR: f32 = 0.2;
 const MIN_SCORE: f32 = 0.9;
 
@@ -88,32 +89,47 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn test_one() {
         let motif = Motif::from(kmers_to_matrix(b"ATAGG", GAP_LEN, b"CCATG"));
         println!("score for present: {:?}", motif.score(b"GGAACGAAGTCCGTAGGGTCCATAGGAAAACCACTATGGGGCAGGATAATCATTAAAGGTCACTCGGTCGAGGCACAGATTGTGAGGAAGATGTAGGGGACCGTCGTTAAACCTAACGGACGGCTACACGGTTGTTGAAATGTCCCCCCCTTTTGCATTTTTCCTATGGGCGGCGACATAAAACTCGCAGACGAAGTTGGATATCTCCCGAATACGTGGACCGGCAGCATAACCAGACAAACGGGTAACTAACGTATGAGTGTGTCCAGCCACCATCCATAGGAAGTCCCATGAGTGAGCTTGATGATGTGAGGGCATGACATGTGCGGAAAACGAAGAACTAGGACCATAATGCAGGGCGACCTGCGCTCGAAACTCTGGATTACCATTTCCGCGGCCTAATATGGATCTCCTGTGTCTCGGATCCTTCAGGTCGACGTTCGGATCATACATGGGACTACAACGTGTCGATAGACCGCCAGACCTACACAAAGCATGCA"));
     }
 
-    fn choose(pos_v: &mut Vec<(Vec<u8>, f64)>, neg_v: &mut Vec<(Vec<u8>, f64)>) -> (Vec<Vec<u8>>, Vec<Vec<u8>>) {
+    fn choose(
+        pos_v: &mut Vec<(Vec<u8>, f64)>,
+        neg_v: &mut Vec<(Vec<u8>, f64)>,
+    ) -> Option<(Vec<Vec<u8>>, Vec<Vec<u8>>)> {
         pos_v.sort_by(|&(_, score_a), &(_, score_b)| {
             score_b.partial_cmp(&score_a).expect("float sort")
         });
         neg_v.sort_by(|&(_, score_a), &(_, score_b)| {
             score_b.partial_cmp(&score_a).expect("float sort")
         });
-        (
-            pos_v.iter().map(|&(ref s, _)| s.clone()).take(100).collect(),
-            neg_v.iter().map(|&(ref s, _)| s.clone()).take(100).collect()
-        )
+        Some((
+            pos_v
+                .iter()
+                .map(|&(ref s, _)| s.clone())
+                .take(100)
+                .collect(),
+            neg_v
+                .iter()
+                .map(|&(ref s, _)| s.clone())
+                .take(100)
+                .collect(),
+        ))
     }
 
     #[test]
+    #[ignore]
     fn test_find() {
         let indiv_ct = 100;
         let dyads = DyadMotif::motifs(POS_FNAME, NEG_FNAME, MOTIF.len(), indiv_ct, choose);
-        dyads[0].refine(POS_FNAME, NEG_FNAME, 100);
+        let (score, new_dyad) = dyads[0].refine(100);
+
     }
 
     #[test]
+    #[ignore]
     fn print_kmers() {
         for i in 0..MOTIF.len() - KMER_LEN {
             println!(
