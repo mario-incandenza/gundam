@@ -5,14 +5,15 @@ extern crate darwin_rs;
 extern crate bio;
 extern crate rand;
 extern crate jobsteal;
+#[macro_use]
+extern crate log;
+extern crate env_logger;
 
 use jobsteal::{make_pool, BorrowSpliteratorMut, Spliterator, Pool};
-
-
 use std::f64;
 use std::str;
 use darwin_rs::{Individual, SimulationBuilder, Population, PopulationBuilder};
-use darwin_rs::select::MaximizeSelector;
+//use darwin_rs::select::MaximizeSelector;
 
 use pssm::{Motif, BasePos, ScoredPos};
 use bio::io::fasta;
@@ -28,7 +29,8 @@ use dyad::*;
 pub use dyad::find_motifs;
 
 const KMER_LEN: usize = 5;
-const GAP_LEN: usize = 6;
+const MIN_GAP: usize = 0;
+const MAX_GAP: usize = 6;
 const MUT_INCR: f32 = 0.2;
 const MIN_SCORE: f32 = 0.9;
 
@@ -91,7 +93,7 @@ mod tests {
     #[test]
     #[ignore]
     fn test_one() {
-        let motif = Motif::from(kmers_to_matrix(b"ATAGG", GAP_LEN, b"CCATG"));
+        let motif = Motif::from(kmers_to_matrix(b"ATAGG", MAX_GAP, b"CCATG"));
         println!("score for present: {:?}", motif.score(b"GGAACGAAGTCCGTAGGGTCCATAGGAAAACCACTATGGGGCAGGATAATCATTAAAGGTCACTCGGTCGAGGCACAGATTGTGAGGAAGATGTAGGGGACCGTCGTTAAACCTAACGGACGGCTACACGGTTGTTGAAATGTCCCCCCCTTTTGCATTTTTCCTATGGGCGGCGACATAAAACTCGCAGACGAAGTTGGATATCTCCCGAATACGTGGACCGGCAGCATAACCAGACAAACGGGTAACTAACGTATGAGTGTGTCCAGCCACCATCCATAGGAAGTCCCATGAGTGAGCTTGATGATGTGAGGGCATGACATGTGCGGAAAACGAAGAACTAGGACCATAATGCAGGGCGACCTGCGCTCGAAACTCTGGATTACCATTTCCGCGGCCTAATATGGATCTCCTGTGTCTCGGATCCTTCAGGTCGACGTTCGGATCATACATGGGACTACAACGTGTCGATAGACCGCCAGACCTACACAAAGCATGCA"));
     }
 

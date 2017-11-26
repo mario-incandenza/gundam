@@ -8,9 +8,11 @@ name = "gundam"
 path = "src/main.rs"
 
 [dependencies]
-darwin-rs = { path = "../darwin-rs" }
-pssm = { path = "../rust-pssm" }
+pssm = { git = "https://github.com/ortho-the-d-stice/rust-pssm" }
 bio = "*"
 rand = "*"
 ndarray = "*"
 jobsteal = "*"
+log = "*"
+env_logger = "*"
+darwin-rs = "*"
