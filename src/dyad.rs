@@ -1,8 +1,10 @@
 use jobsteal::{make_pool, BorrowSpliterator, Spliterator, Pool};
 use std::f64;
 use std::str;
+use std::cmp::max;
 use darwin_rs::{Individual, SimulationBuilder, Population, PopulationBuilder};
 //use darwin_rs::select::MaximizeSelector;
+use fishers_exact::{fishers_exact,TestTails};
 
 use pssm::{Motif, BasePos, ScoredPos};
 use bio::io::fasta;
@@ -13,6 +15,8 @@ use rand::Rng;
 use ctr::*;
 
 use super::*;
+
+const P_CUTOFF: f64 = 0.001;
 
 #[derive(Debug, Clone)]
 pub struct DyadMotif {
@@ -32,8 +36,9 @@ pub struct DyadMotif {
     neg_seqs: Vec<Vec<u8>>,
 }
 
-fn fasta_to_ctr(fname: &str) -> GappedKmerCtr {
+fn fasta_to_ctr(fname: &str) -> (GappedKmerCtr, usize) {
     let mut ctr = GappedKmerCtr::new(KMER_LEN, MIN_GAP, MAX_GAP);
+    let mut tot = 0;
 
     for _rec in fasta::Reader::from_file(fname)
         .expect(format!("trouble opening {}", fname).as_str())
@@ -41,9 +46,10 @@ fn fasta_to_ctr(fname: &str) -> GappedKmerCtr {
     {
         let rec = _rec.expect("couldn't unwrap record");
         ctr.update_with_seq(rec.seq());
+        tot += 1;
     }
 
-    ctr
+    (ctr, tot)
 }
 
 pub fn kmers_to_matrix(kmer1: &[u8], gap_len: usize, kmer2: &[u8]) -> Array2<f32> {
@@ -64,6 +70,28 @@ pub fn kmers_to_matrix(kmer1: &[u8], gap_len: usize, kmer2: &[u8]) -> Array2<f32
 }
 
 impl DyadMotif {
+    /// P-values returned by the Fisher exact test don't change meaningfully as the values get larger.
+    /// eg, both [100, 200, 10_000, 10_000] and [1_000, 2_000, 100_000, 100_000] yield a P-value well
+    /// below our cutoff.  therefore, we can safely scale the values down if they're above some arbitrary
+    /// threshold.
+    fn scaled_fisher(_ct1: usize, _tot1: usize, _ct2: usize, _tot2: usize) -> f64 {
+        let (ct1, tot1) = if _tot1 as f64 <= 1e4 {
+            (_ct1 as i32, _tot1 as i32)
+        } else {
+            let scale = 1e4 / _tot1 as f64;
+            (max(1, (scale * _ct1 as f64) as i32), 10_000)
+        };
+
+        let (ct2, tot2) = if _tot2 as f64 <= 1e4 {
+            (_ct2 as i32, _tot2 as i32)
+        } else {
+            let scale = 1e4 / _tot2 as f64;
+            (max(1, (scale * _ct2 as f64) as i32), 10_000)
+        };
+
+        fishers_exact(&[ct1, ct2, tot1, tot2], TestTails::One)
+    }
+
     pub fn motifs<F>(
         pos_fname: &str,
         neg_fname: &str,
@@ -75,19 +103,24 @@ impl DyadMotif {
         F: Fn(&mut Vec<(Vec<u8>, f64)>, &mut Vec<(Vec<u8>, f64)>) -> Option<(Vec<Vec<u8>>, Vec<Vec<u8>>)>,
     {
 
-        let pos = fasta_to_ctr(pos_fname);
-        let neg = fasta_to_ctr(neg_fname);
+        let (pos, pos_ct) = fasta_to_ctr(pos_fname);
+        let (neg, neg_ct) = fasta_to_ctr(neg_fname);
 
         let mut pool = make_pool(3).unwrap();
 
         let (width, height, gap) = pos.ctr.dim();
         let mut dyads = Vec::new();
         for i in 0..width {
+            info!("i={}", i);
             for j in 0..height {
                 for k in 0..gap {
                     if pos.ctr[[i, j, k]] > neg.ctr[[i, j, k]] &&
-                        pos.ctr[[i, j, k]] - neg.ctr[[i, j, k]] >= 100
-                    /*200*/
+                        DyadMotif::scaled_fisher(
+                            pos.ctr[[i, j, k]],
+                            pos_ct,
+                            neg.ctr[[i, j, k]],
+                            neg_ct,
+                        ) < P_CUTOFF
                     {
 
                         let init = Motif::from(kmers_to_matrix(
@@ -460,7 +493,12 @@ pub fn find_motifs(pos_fname: &str, neg_fname: &str, max_len: usize) -> Vec<Dyad
         .map(|(idx, dyad)| {
 
             // dyad wraps the sequences chosen by our method
-            info!("unrefined motif #{}: {} (gap_len {})", idx, dyad.show_motif(), dyad.gap_len);
+            info!(
+                "unrefined motif #{}: {} (gap_len {})",
+                idx,
+                dyad.show_motif(),
+                dyad.gap_len
+            );
             let (score, mut new_dyad) = dyad.refine(100);
             info!(
                 "motif #{} after refine: {}, score={}",

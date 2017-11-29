@@ -8,6 +8,7 @@ extern crate jobsteal;
 #[macro_use]
 extern crate log;
 extern crate env_logger;
+extern crate fishers_exact;
 
 use jobsteal::{make_pool, BorrowSpliteratorMut, Spliterator, Pool};
 use std::f64;
@@ -39,6 +40,7 @@ const MIN_SCORE: f32 = 0.9;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use fishers_exact::{fishers_exact, TestTails};
     const MOTIF: &'static [u8] = b"GGCCTAGCCATG";
     const POS_FNAME: &'static str = "pos.fa";
     const NEG_FNAME: &'static str = "neg.fa";
@@ -140,5 +142,12 @@ mod tests {
                 GappedKmerCtr::kmer_to_int(&MOTIF[i..i + KMER_LEN])
             );
         }
+    }
+    #[test]
+    fn fisher() {
+        println!(
+            "fisher: {:?}",
+            fishers_exact(&[100, 200, 5000, 10000], TestTails::One)
+        );
     }
 }
