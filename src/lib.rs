@@ -25,7 +25,7 @@ pub mod ctr;
 use ctr::*;
 
 pub mod dyad;
-use dyad::*;
+pub use dyad::*;
 
 pub use dyad::find_motifs;
 

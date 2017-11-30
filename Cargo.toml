@@ -7,11 +7,16 @@ authors = ["mario incandenza"]
 name = "gundam"
 path = "src/main.rs"
 
+[[bin]]
+name = "gundam_kmer"
+path = "src/choose.rs"
+
+
 [dependencies]
 pssm = { git = "https://github.com/ortho-the-d-stice/rust-pssm" }
 bio = "*"
 rand = "*"
-ndarray = "*"
+ndarray = "0.9"
 jobsteal = "*"
 log = "*"
 env_logger = "*"

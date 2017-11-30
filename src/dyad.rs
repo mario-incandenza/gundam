@@ -4,7 +4,7 @@ use std::str;
 use std::cmp::max;
 use darwin_rs::{Individual, SimulationBuilder, Population, PopulationBuilder};
 //use darwin_rs::select::MaximizeSelector;
-use fishers_exact::{fishers_exact,TestTails};
+use fishers_exact::{fishers_exact, TestTails};
 
 use pssm::{Motif, BasePos, ScoredPos};
 use bio::io::fasta;
@@ -92,21 +92,13 @@ impl DyadMotif {
         fishers_exact(&[ct1, ct2, tot1, tot2], TestTails::One)
     }
 
-    pub fn motifs<F>(
+    /// generate kmers, tablulate, and apply Fisher exact test
+    pub fn passing_kmers(
         pos_fname: &str,
         neg_fname: &str,
-        width: usize,
-        count: usize,
-        chooser: F,
-    ) -> Vec<DyadMotif>
-    where
-        F: Fn(&mut Vec<(Vec<u8>, f64)>, &mut Vec<(Vec<u8>, f64)>) -> Option<(Vec<Vec<u8>>, Vec<Vec<u8>>)>,
-    {
-
+    ) -> Vec<(usize, usize, usize)> {
         let (pos, pos_ct) = fasta_to_ctr(pos_fname);
         let (neg, neg_ct) = fasta_to_ctr(neg_fname);
-
-        let mut pool = make_pool(3).unwrap();
 
         let (width, height, gap) = pos.ctr.dim();
         let mut dyads = Vec::new();
@@ -122,15 +114,34 @@ impl DyadMotif {
                             neg_ct,
                         ) < P_CUTOFF
                     {
+                        dyads.push((i, j, k));
+                    }
+                }
+            }
+        }
+        dyads
+    }
 
-                        let init = Motif::from(kmers_to_matrix(
-                            GappedKmerCtr::int_to_kmer(KMER_LEN, i).as_slice(),
-                            k,
-                            GappedKmerCtr::int_to_kmer(KMER_LEN, j).as_slice(),
-                        ));
+    pub fn motifs<F>(
+        chosen: Vec<(usize, usize, usize)>,
+        pos_fname: &str,
+        neg_fname: &str,
+        chooser: F,
+    ) -> Vec<DyadMotif>
+    where
+        F: Fn(&mut Vec<(Vec<u8>, f64)>, &mut Vec<(Vec<u8>, f64)>) -> Option<(Vec<Vec<u8>>, Vec<Vec<u8>>)>,
+    {
+        let mut pool = make_pool(3).unwrap();
+        let mut dyads = Vec::new();
+        for (i, j, k) in chosen {
+            let init = Motif::from(kmers_to_matrix(
+                GappedKmerCtr::int_to_kmer(KMER_LEN, i).as_slice(),
+                k,
+                GappedKmerCtr::int_to_kmer(KMER_LEN, j).as_slice(),
+            ));
 
-                        if init.min_score == init.max_score {
-                            info!("skipping motif: {}<gap={}>{}", 
+            if init.min_score == init.max_score {
+                info!("skipping motif: {}<gap={}>{}", 
                                 String::from_utf8(GappedKmerCtr::int_to_kmer(KMER_LEN, i))
                                     .expect("DyadMotif::motifs - A"),
 k,
@@ -138,29 +149,27 @@ k,
                                     .expect("DyadMotif::motifs - B"),
                             );
 
-                            continue;
-                        }
-
-                        let copy = init.clone();
-
-                        let mut pos_v = DyadMotif::eval_file(&mut pool, &copy, pos_fname);
-                        let mut neg_v = DyadMotif::eval_file(&mut pool, &copy, neg_fname);
-                        let (pos_seqs, neg_seqs) =
-                            chooser(&mut pos_v, &mut neg_v).expect("motifs found bad one (1)");
-
-                        dyads.push(DyadMotif {
-                            init: init,
-                            motif: copy,
-                            ctr: GappedKmerCtr::new(KMER_LEN, MIN_GAP, MAX_GAP),
-                            kmer_len: KMER_LEN,
-                            gap_len: MIN_GAP + k,
-                            pos_seqs: pos_seqs,
-                            neg_seqs: neg_seqs,
-                        });
-                    }
-                }
+                continue;
             }
+
+            let copy = init.clone();
+
+            let mut pos_v = DyadMotif::eval_file(&mut pool, &copy, pos_fname);
+            let mut neg_v = DyadMotif::eval_file(&mut pool, &copy, neg_fname);
+            let (pos_seqs, neg_seqs) =
+                chooser(&mut pos_v, &mut neg_v).expect("motifs found bad one (1)");
+
+            dyads.push(DyadMotif {
+                init: init,
+                motif: copy,
+                ctr: GappedKmerCtr::new(KMER_LEN, MIN_GAP, MAX_GAP),
+                kmer_len: KMER_LEN,
+                gap_len: MIN_GAP + k,
+                pos_seqs: pos_seqs,
+                neg_seqs: neg_seqs,
+            });
         }
+
         dyads
     }
 
@@ -484,8 +493,8 @@ pub fn find_motifs(pos_fname: &str, neg_fname: &str, max_len: usize) -> Vec<Dyad
     }
 
     let mut pool = make_pool(3).unwrap();
-
-    let motifs = DyadMotif::motifs(pos_fname, neg_fname, max_len, indiv_ct, choose);
+    let v = DyadMotif::passing_kmers(pos_fname, neg_fname);
+    let motifs = DyadMotif::motifs(v, pos_fname, neg_fname, choose);
     info!("got {} motifs", motifs.len());
     motifs
         .iter()
@@ -622,8 +631,8 @@ mod tests {
     #[ignore]
     fn test_find_one_motif() {
         println!("dyad::test_find");
-        let indiv_ct = 100;
-        let dyads = DyadMotif::motifs(POS_FNAME, NEG_FNAME, MOTIF.len(), indiv_ct, choose);
+        let v = DyadMotif::passing_kmers(POS_FNAME, NEG_FNAME);
+        let dyads = DyadMotif::motifs(v, POS_FNAME, NEG_FNAME, choose);
         dyads[0].refine(100);
     }
 
