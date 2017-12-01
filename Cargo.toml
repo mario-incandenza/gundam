@@ -16,7 +16,7 @@ path = "src/choose.rs"
 pssm = { git = "https://github.com/ortho-the-d-stice/rust-pssm" }
 bio = "*"
 rand = "*"
-ndarray = "0.9"
+ndarray = "0.10"
 jobsteal = "*"
 log = "*"
 env_logger = "*"
