@@ -14,13 +14,15 @@ However, while GADEM was designed to find motifs enriched in a ChIP dataset, Gun
 
 Gundam begins by encoding each pair of fixed-length K-mers as a pair of integers.  These serve, along with gap length, as the index of a matrix with dimensions (k, k, i), where k = 4<sup>KMER_LEN</sup> and i = the maximum gap length.  Two such matrices are computed, one from the "positive" dataset and the other from the "negative," and only dyads passing the Fisher's exact test for significance as used.  Selected kmer pairs are encoded as a position-specific scoring matrix (using the [rust-pssm library](https://github.com/ortho-the-d-stice/rust-pssm)), with matching nucleotides initially set to 0.8 and non-matching to 0.05.  Gap bases are naively assigned a weight of 0.25.  For example, given two 4-base K-mers with sequence "ATGC," and a 3-base gap between them, the following PSSM would be created:
 
-|init:| A  | T  | G  | C  | N  | N  | N  | A  | T  | G  | C  |
-|pos: | 0  | 1  | 2  | 3  | 4  | 5  | 6  | 7  | 8  | 9  | 10 |
-|-----|----|----|----|----|----|----|----|----|----|----|----|
+
+| init:| A  | T  | G  | C  | N  | N  | N  | A  | T  | G  | C  |
+| pos: | 0  | 1  | 2  | 3  | 4  | 5  | 6  | 7  | 8  | 9  | 10 |
+|------|----|----|----|----|----|----|----|----|----|----|----|
 | A   |0.8 |0.05|0.05|0.05|0.25|0.25|0.25|0.8 |0.05|0.05|0.05|
 | T   |0.05|0.8 |0.05|0.05|0.25|0.25|0.25|0.05|0.8 |0.05|0.05|
 | G   |0.05|0.05|0.8 |0.05|0.25|0.25|0.25|0.05|0.05|0.8 |0.05|
 | C   |0.05|0.05|0.05|0.8 |0.25|0.25|0.25|0.05|0.05|0.05|0.8 |
+
 
 ### Genetic algorithm (GA) and Expectation Maximization (EM)
 
