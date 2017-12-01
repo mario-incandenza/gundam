@@ -22,15 +22,6 @@ Gundam begins by encoding each pair of fixed-length K-mers as a pair of integers
 |  G   |0.05|0.05|0.8 |0.05|0.25|0.25|0.25|0.05|0.05|0.8 |0.05|
 |  C   |0.05|0.05|0.05|0.8 |0.25|0.25|0.25|0.05|0.05|0.05|0.8 |
 
-
-
-| First Header  | Second Header |
-| ------------- | ------------- |
-| Content Cell  | Content Cell  |
-| Content Cell  | Content Cell  |
-
-
-
 ### Genetic algorithm (GA) and Expectation Maximization (EM)
 
 Gundam, much like GADEM, uses an EM algorithm to refine the PSSMs initialized by K-mer pairs.  After the PSSM is created, samples are chosen from the full set of positive and negative sequences, and a GA is used to improve PSSM weights.  The [darwin-rs](https://github.com/willi-kappler/darwin-rs) library is used for GA refinement, with fitness for each PSSM calculated as:
