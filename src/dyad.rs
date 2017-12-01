@@ -93,10 +93,7 @@ impl DyadMotif {
     }
 
     /// generate kmers, tablulate, and apply Fisher exact test
-    pub fn passing_kmers(
-        pos_fname: &str,
-        neg_fname: &str,
-    ) -> Vec<(usize, usize, usize)> {
+    pub fn passing_kmers(pos_fname: &str, neg_fname: &str) -> Vec<(usize, usize, usize)> {
         let (pos, pos_ct) = fasta_to_ctr(pos_fname);
         let (neg, neg_ct) = fasta_to_ctr(neg_fname);
 
@@ -455,7 +452,11 @@ impl Individual for DyadMotif {
     }*/
 }
 
-pub fn find_motifs(pos_fname: &str, neg_fname: &str, max_len: usize) -> Vec<DyadMotif> {
+pub fn find_motifs(
+    chosen: Vec<(usize, usize, usize)>,
+    pos_fname: &str,
+    neg_fname: &str,
+) -> Vec<DyadMotif> {
     let indiv_ct = 100;
 
     fn choose(
@@ -493,8 +494,7 @@ pub fn find_motifs(pos_fname: &str, neg_fname: &str, max_len: usize) -> Vec<Dyad
     }
 
     let mut pool = make_pool(3).unwrap();
-    let v = DyadMotif::passing_kmers(pos_fname, neg_fname);
-    let motifs = DyadMotif::motifs(v, pos_fname, neg_fname, choose);
+    let motifs = DyadMotif::motifs(chosen, pos_fname, neg_fname, choose);
     info!("got {} motifs", motifs.len());
     motifs
         .iter()
@@ -639,7 +639,8 @@ mod tests {
     #[test]
     fn test_find_motifs() {
         env_logger::init();
-        find_motifs(POS_FNAME, NEG_FNAME, 16); // MOTIF.len());
+        let v = DyadMotif::passing_kmers(POS_FNAME, NEG_FNAME);
+        find_motifs(v, POS_FNAME, NEG_FNAME);
     }
 
 

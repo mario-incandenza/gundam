@@ -126,8 +126,8 @@ mod tests {
     #[test]
     #[ignore]
     fn test_find() {
-        let indiv_ct = 100;
-        let dyads = DyadMotif::motifs(POS_FNAME, NEG_FNAME, MOTIF.len(), indiv_ct, choose);
+        let v = DyadMotif::passing_kmers(POS_FNAME, NEG_FNAME);
+        let dyads = DyadMotif::motifs(v, POS_FNAME, NEG_FNAME, choose);
         let (score, new_dyad) = dyads[0].refine(100);
 
     }
