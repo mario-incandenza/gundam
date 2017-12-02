@@ -20,7 +20,7 @@ fn main() {
     }
 
     info!("hello world");
-    for (i, j, k) in DyadMotif::passing_kmers(args[1].as_str(), args[2].as_str()) {
-        println!("{},{},{}", i, j, k);
+    for (i, j, k, f) in DyadMotif::passing_kmers(args[1].as_str(), args[2].as_str()) {
+        println!("{},{},{},{}", i, j, k, f);
     }
 }

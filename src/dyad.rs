@@ -93,7 +93,7 @@ impl DyadMotif {
     }
 
     /// generate kmers, tablulate, and apply Fisher exact test
-    pub fn passing_kmers(pos_fname: &str, neg_fname: &str) -> Vec<(usize, usize, usize)> {
+    pub fn passing_kmers(pos_fname: &str, neg_fname: &str) -> Vec<(usize, usize, usize, f64)> {
         let (pos, pos_ct) = fasta_to_ctr(pos_fname);
         let (neg, neg_ct) = fasta_to_ctr(neg_fname);
 
@@ -103,15 +103,16 @@ impl DyadMotif {
             info!("i={}", i);
             for j in 0..height {
                 for k in 0..gap {
-                    if pos.ctr[[i, j, k]] > neg.ctr[[i, j, k]] &&
-                        DyadMotif::scaled_fisher(
+                    if pos.ctr[[i, j, k]] > neg.ctr[[i, j, k]] {
+                        let p = DyadMotif::scaled_fisher(
                             pos.ctr[[i, j, k]],
                             pos_ct,
                             neg.ctr[[i, j, k]],
                             neg_ct,
-                        ) < P_CUTOFF
-                    {
-                        dyads.push((i, j, k));
+                        );
+                        if p < P_CUTOFF {
+                            dyads.push((i, j, k, p));
+                        };
                     }
                 }
             }
@@ -120,7 +121,7 @@ impl DyadMotif {
     }
 
     pub fn motifs<F>(
-        chosen: Vec<(usize, usize, usize)>,
+        chosen: Vec<(usize, usize, usize, f64)>,
         pos_fname: &str,
         neg_fname: &str,
         chooser: F,
@@ -130,7 +131,7 @@ impl DyadMotif {
     {
         let mut pool = make_pool(3).unwrap();
         let mut dyads = Vec::new();
-        for (idx, &(i, j, k)) in chosen.iter().enumerate() {
+        for (idx, &(i, j, k, _)) in chosen.iter().enumerate() {
             if idx % 500 == 0 {
                 info!("creating dyad #{}", idx);
             }
@@ -457,7 +458,7 @@ impl Individual for DyadMotif {
 }
 
 pub fn find_motifs(
-    chosen: Vec<(usize, usize, usize)>,
+    chosen: Vec<(usize, usize, usize, f64)>,
     pos_fname: &str,
     neg_fname: &str,
 ) -> Vec<DyadMotif> {
