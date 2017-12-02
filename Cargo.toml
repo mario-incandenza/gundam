@@ -22,3 +22,4 @@ log = "*"
 env_logger = "*"
 darwin-rs = "*"
 fishers_exact = { git = "https://github.com/mario-incandenza/fishers_exact" }
+chrono = "*"

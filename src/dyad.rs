@@ -23,7 +23,7 @@ pub struct DyadMotif {
     /// initial state based on kmers
     init: Motif,
     /// weights updated by GA
-    motif: Motif,
+    pub motif: Motif,
     /// kmer len
     kmer_len: usize,
     /// gap len
