@@ -130,7 +130,11 @@ impl DyadMotif {
     {
         let mut pool = make_pool(3).unwrap();
         let mut dyads = Vec::new();
-        for (i, j, k) in chosen {
+        for (idx, &(i, j, k)) in chosen.iter().enumerate() {
+            if idx % 500 == 0 {
+                info!("creating dyad #{}", idx);
+            }
+
             let init = Motif::from(kmers_to_matrix(
                 GappedKmerCtr::int_to_kmer(KMER_LEN, i).as_slice(),
                 k,
