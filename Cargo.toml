@@ -21,4 +21,4 @@ jobsteal = "*"
 log = "*"
 env_logger = "*"
 darwin-rs = "*"
-fishers_exact = "*"
+fishers_exact = { git = "https://github.com/mario-incandenza/fishers_exact" }
