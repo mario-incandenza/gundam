@@ -8,8 +8,7 @@ use std::process::exit;
 use gundam::*;
 
 fn main() {
-    env_logger::init();
-    error!("start");
+    let _ = env_logger::init();
     let args = env::args().collect::<Vec<String>>();
     if args.len() != 3 {
         println!(
@@ -19,8 +18,7 @@ fn main() {
         exit(1);
     }
 
-    info!("hello world");
     for (i, j, k, f) in DyadMotif::passing_kmers(args[1].as_str(), args[2].as_str()) {
-        println!("{},{},{},{}", i, j, k, f);
+        println!("{},{},{},{:e}", i, j, k, f);
     }
 }

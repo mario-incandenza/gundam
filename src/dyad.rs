@@ -13,7 +13,6 @@ use rand;
 use rand::Rng;
 
 use ctr::*;
-
 use super::*;
 
 const P_CUTOFF: f64 = 0.001;
@@ -129,7 +128,8 @@ impl DyadMotif {
     where
         F: Fn(&mut Vec<(Vec<u8>, f64)>, &mut Vec<(Vec<u8>, f64)>) -> Option<(Vec<Vec<u8>>, Vec<Vec<u8>>)>,
     {
-        let mut pool = make_pool(3).unwrap();
+        info!("using {} cpus", *CPU_COUNT);
+        let mut pool = make_pool(*CPU_COUNT).unwrap();
         let mut dyads = Vec::new();
         for (idx, &(i, j, k, _)) in chosen.iter().enumerate() {
             if idx % 500 == 0 {
@@ -323,7 +323,7 @@ fn crossover_motifs(
         t
     }
 
-    let mut pool = make_pool(3).unwrap();
+    let mut pool = make_pool(*CPU_COUNT).unwrap();
     let pwm_len = mine.len();
     pos_seqs.split_iter_mut().for_each(&pool.spawner(), |t| {
         let scores = max_slice(pwm_len, mine, theirs, t.0.as_slice());
@@ -394,7 +394,7 @@ impl Individual for DyadMotif {
     fn calculate_fitness(&mut self) -> f64 {
         // Calculate how good the data values are compared to the perfect solution
 
-        let mut pool = make_pool(3).unwrap();
+        let mut pool = make_pool(*CPU_COUNT).unwrap();
 
         let pos_sum: f64 = self.pos_seqs
             .clone()
@@ -498,7 +498,7 @@ pub fn find_motifs(
         ))
     }
 
-    let mut pool = make_pool(3).unwrap();
+    let mut pool = make_pool(*CPU_COUNT).unwrap();
     let motifs = DyadMotif::motifs(chosen, pos_fname, neg_fname, choose);
     info!("got {} motifs", motifs.len());
     motifs

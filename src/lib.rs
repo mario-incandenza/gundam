@@ -9,6 +9,9 @@ extern crate jobsteal;
 extern crate log;
 extern crate env_logger;
 extern crate fishers_exact;
+extern crate num_cpus;
+#[macro_use]
+extern crate lazy_static;
 
 use jobsteal::{make_pool, BorrowSpliteratorMut, Spliterator, Pool};
 use std::f64;
@@ -35,6 +38,9 @@ const MAX_GAP: usize = 6;
 const MUT_INCR: f32 = 0.2;
 const MIN_SCORE: f32 = 0.9;
 
+lazy_static! {
+    pub static ref CPU_COUNT: usize = num_cpus::get();
+}
 
 
 #[cfg(test)]

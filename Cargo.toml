@@ -23,3 +23,5 @@ env_logger = "*"
 darwin-rs = "*"
 fishers_exact = { git = "https://github.com/mario-incandenza/fishers_exact" }
 chrono = "*"
+lazy_static = "1.0"
+num_cpus = "1.0"
