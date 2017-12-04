@@ -161,6 +161,8 @@ k,
             let (pos_seqs, neg_seqs) =
                 chooser(&mut pos_v, &mut neg_v).expect("motifs found bad one (1)");
 
+            info!("DyadMotif::motifs - {} / {} seqs used", pos_seqs.len(), pos_v.len());
+
             dyads.push(DyadMotif {
                 init: init,
                 motif: copy,
@@ -526,7 +528,7 @@ pub fn find_motifs(
             let mut neg_v = DyadMotif::eval_file(&mut pool, &new_dyad.motif, neg_fname);
             let (pos_seqs, neg_seqs) =
                 choose(&mut pos_v, &mut neg_v).expect("motifs found bad one (2)");
-            info!("motif #{} - {} seqs used", idx, pos_seqs.len());
+            info!("find_motifs - motif #{} - {} / {} seqs used", idx, pos_seqs.len(), pos_v.len());
             new_dyad.pos_seqs = pos_seqs;
             new_dyad.neg_seqs = neg_seqs;
 
