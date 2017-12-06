@@ -229,7 +229,7 @@ k,
                 .expect("PopulationBuilder");
         let mut sim = SimulationBuilder::<DyadMotif>::new()
             .iterations(11)        //.factor(0.34)
-            .threads(2)
+            .threads(*CPU_COUNT)
             .add_population(population1)
             .finalize()
             .expect("some problem making builder");
