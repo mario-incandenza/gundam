@@ -28,7 +28,7 @@ pub struct DyadMotif {
     /// gap len
     gap_len: usize,
     /// kmer counts
-    ctr: GappedKmerCtr,
+    ctr: GappedKmerCtr, // FIXME: REMOVE
     /// sequences matching our motif
     pos_seqs: Vec<Vec<u8>>,
     /// sequences representing background
@@ -99,7 +99,6 @@ impl DyadMotif {
         let (width, height, gap) = pos.ctr.dim();
         let mut dyads = Vec::new();
         for i in 0..width {
-            info!("i={}", i);
             for j in 0..height {
                 for k in 0..gap {
                     if pos.ctr[[i, j, k]] > neg.ctr[[i, j, k]] {
@@ -143,25 +142,25 @@ impl DyadMotif {
             ));
 
             if init.min_score == init.max_score {
-                info!("skipping motif: {}<gap={}>{}", 
-                                String::from_utf8(GappedKmerCtr::int_to_kmer(KMER_LEN, i))
-                                    .expect("DyadMotif::motifs - A"),
-k,
-                                String::from_utf8(GappedKmerCtr::int_to_kmer(KMER_LEN, j))
-                                    .expect("DyadMotif::motifs - B"),
-                            );
-
+                info!(
+                    "skipping motif: {}",
+                    String::from_utf8(init.degenerate_consensus()).expect("show_motif Q")
+                );
                 continue;
             }
 
             let copy = init.clone();
 
-            let mut pos_v = DyadMotif::eval_file(&mut pool, &copy, pos_fname);
-            let mut neg_v = DyadMotif::eval_file(&mut pool, &copy, neg_fname);
+            let mut pos_v = copy.eval_file(&mut pool, pos_fname);
+            let mut neg_v = copy.eval_file(&mut pool, neg_fname);
             let (pos_seqs, neg_seqs) =
                 chooser(&mut pos_v, &mut neg_v).expect("motifs found bad one (1)");
 
-            info!("DyadMotif::motifs - {} / {} seqs used", pos_seqs.len(), pos_v.len());
+            info!(
+                "DyadMotif::motifs - {} / {} seqs used",
+                pos_seqs.len(),
+                pos_v.len()
+            );
 
             dyads.push(DyadMotif {
                 init: init,
@@ -177,8 +176,98 @@ k,
         dyads
     }
 
+
+    /// use a genetic algorithm - generate @mut_ct mutants, mutate further, and return the best
+    pub fn refine_GA(&self, mut_ct: usize) -> (f64, DyadMotif) {
+
+        // make an initial population of 100 copies of the motif
+        let mut init = (0..mut_ct)
+            .map(|_| self.clone())
+            .collect::<Vec<DyadMotif>>();
+        for ind in init.iter_mut() {
+            ind.mutate();
+        }
+
+
+        let population1 = PopulationBuilder::<DyadMotif>::new()
+                .initial_population(&init)
+                .increasing_exp_mutation_rate(1.03)
+                .reset_limit_end(0) // disable resetting
+                .finalize()
+                .expect("PopulationBuilder");
+        let mut sim = SimulationBuilder::<DyadMotif>::new()
+            .iterations(11)
+            .threads(*CPU_COUNT)
+            .add_population(population1)
+            .finalize()
+            .expect("some problem making builder");
+
+        sim.run();
+        sim.print_fitness();
+
+        (
+            sim.simulation_result.fittest[0].fitness,
+            sim.simulation_result.fittest[0].individual.clone(),
+        )
+    }
+
+    /// simple means-based refinement
+    pub fn refine_mean(&self, _mut_ct: usize) -> (f64, DyadMotif) {
+        let (len, _) = self.motif.scores.dim();
+        let mut new_scores = Array2::from_elem((len, 4), 0.05);
+        println!("-- calc mean from {} seqs", self.pos_seqs.len());
+        for seq in self.pos_seqs.iter() {
+            let loc = self.motif
+                .score(seq.as_slice())
+                .expect("refine_mean - loc")
+                .loc;
+            for i in 0..len {
+                new_scores[[i, BasePos::get(seq[loc + i])]] += 1.0;
+            }
+        }
+        let mut m = Motif::from(new_scores);
+        m.normalize_scores();
+        m.calc_minmax();
+
+        println!(
+            "mean: {:?}",
+            String::from_utf8(m.degenerate_consensus()).unwrap()
+        );
+
+        let mut d = DyadMotif {
+            init: self.motif.clone(),
+            motif: m,
+            kmer_len: self.kmer_len,
+            gap_len: self.gap_len,
+            ctr: self.ctr.clone(),
+            pos_seqs: self.pos_seqs.clone(),
+            neg_seqs: self.neg_seqs.clone(),
+        };
+        //println!("dyad from mean: {:?}", &d);
+
+        let score = d.calculate_fitness();
+        println!(" --> score {}", score);
+        (score, d)
+    }
+
+    pub fn refine(&self, mut_ct: usize) -> (f64, DyadMotif) {
+        self.refine_mean(mut_ct)
+    }
+
+    /// stringified self.motif.degenerate_consensus()
+    pub fn show_motif(&self) -> String {
+        String::from_utf8(self.motif.degenerate_consensus()).expect("show_motif")
+    }
+}
+
+trait MatrixPlus {
+    fn eval_file(&self, pool: &mut Pool, fname: &str) -> Vec<(Vec<u8>, f64)>;
+    fn normalize_scores(&mut self);
+}
+
+impl MatrixPlus for Motif {
     /// apply motif to sequences in a FASTA file, returning sequences and scores
-    fn eval_file(pool: &mut Pool, motif: &Motif, fname: &str) -> Vec<(Vec<u8>, f64)> {
+    fn eval_file(&self, pool: &mut Pool, fname: &str) -> Vec<(Vec<u8>, f64)> {
 
         // FIXME: b/c we wind up re-analyzing these files again and again,
         // we should probably just read into memory once and be done w/ it
@@ -195,75 +284,80 @@ k,
             panic!("empty file: {}", fname);
         }
 
-        v.split_iter_mut().for_each(&pool.spawner(), |p| {
-
-            match motif.score(&p.0) {
-                //Some((_, score)) if score >= MIN_SCORE => pos_pass += 1,
+        v.split_iter_mut().for_each(
+            &pool.spawner(),
+            |p| match self.score(&p.0) {
                 Some(ScoredPos { ref sum, .. }) => {
                     p.1 = *sum as f64;
                 }
                 _ => (),
-            }
-        });
+            },
+        );
         v
     }
+    /// normalize scores in-place by summing each column and dividing each value
+    fn normalize_scores(&mut self) {
+        let (width, bases) = self.scores.dim();
 
-    ///
-    pub fn refine(&self, mut_ct: usize) -> (f64, DyadMotif) {
-
-        // make an initial population of 100 copies of the motif
-        let mut init = (0..mut_ct)
-            .map(|_| self.clone())
-            .collect::<Vec<DyadMotif>>();
-        for ind in init.iter_mut() {
-            ind.mutate();
-        }
-
-
-        let population1 = PopulationBuilder::<DyadMotif>::new()
-                .set_id(1)
-                .initial_population(&init)
-                .increasing_exp_mutation_rate(1.03)
-                .reset_limit_end(0) // disable resetting
-                .finalize()
-                .expect("PopulationBuilder");
-        let mut sim = SimulationBuilder::<DyadMotif>::new()
-            .iterations(11)        //.factor(0.34)
-            .threads(*CPU_COUNT)
-            .add_population(population1)
-            .finalize()
-            .expect("some problem making builder");
-
-        sim.run();
-        sim.print_fitness();
-
-        (
-            sim.simulation_result.fittest[0].fitness,
-            sim.simulation_result.fittest[0].individual.clone(),
-        )
-    }
-
-    /// stringified self.motif.degenerate_consensus()
-    pub fn show_motif(&self) -> String {
-        String::from_utf8(self.motif.degenerate_consensus()).expect("show_motif")
-    }
-}
-
-/// normalize scores in-place by summing each column and dividing each value
-fn normalize_scores(scores: &mut Array2<f32>) {
-    let (width, bases) = scores.dim();
-
-    for i in 0..width {
-        let mut tot = 0.0;
-        for j in 0..4 {
-            tot += scores[[i, j]];
-        }
-        for j in 0..4 {
-            scores[[i, j]] = scores[[i, j]] / tot;
+        for i in 0..width {
+            let mut tot = 0.0;
+            for j in 0..4 {
+                tot += self.scores[[i, j]];
+            }
+            for j in 0..4 {
+                self.scores[[i, j]] = self.scores[[i, j]] / tot;
+            }
         }
     }
 }
 
+
+
+
+/// choose samples for EM
+fn choose(
+    pos_v: &mut Vec<(Vec<u8>, f64)>,
+    neg_v: &mut Vec<(Vec<u8>, f64)>,
+) -> Option<(Vec<Vec<u8>>, Vec<Vec<u8>>)> {
+    pos_v.sort_by(|&(_, score_a), &(_, score_b)| {
+        score_b.partial_cmp(&score_a).expect("float sort")
+    });
+    neg_v.sort_by(|&(_, score_a), &(_, score_b)| {
+        score_b.partial_cmp(&score_a).expect("float sort")
+    });
+
+    let mut cutoff = 0;
+    for (i, &(_, score)) in pos_v.iter().enumerate() {
+        if score <= 0.9 {
+            break;
+        }
+        cutoff = i;
+    }
+    if cutoff == 0 {
+        println!("-- bad: pos={:?}/{}, {:?}/{}, neg={:?}/{}, {:?}/{}",
+                     str::from_utf8(&pos_v[0].0).unwrap(),
+                     pos_v[0].1,
+                     str::from_utf8(&pos_v[1].0).unwrap(),
+                     pos_v[1].1,
+                     str::from_utf8(&neg_v[0].0).unwrap(),
+                     neg_v[0].1,
+                     str::from_utf8(&neg_v[1].0).unwrap(),
+                     neg_v[1].1,);
+        return None;
+    }
+    Some((
+        pos_v
+            .iter()
+            .map(|&(ref s, _)| s.clone())
+            .take(cutoff)
+            .collect(),
+        neg_v
+            .iter()
+            .map(|&(ref s, _)| s.clone())
+            .take(cutoff)
+            .collect(),
+    ))
+}
 
 fn crossover_motifs(
     mine: &mut Motif,
@@ -388,7 +482,7 @@ impl Individual for DyadMotif {
             let new_x = *x + MUT_INCR * (r - 0.5);
             *x = if new_x < 0.0 { 0.0 } else { new_x };
         }
-        normalize_scores(&mut self.motif.scores);
+        self.motif.normalize_scores();
         self.motif.calc_minmax();
     }
 
@@ -405,8 +499,6 @@ impl Individual for DyadMotif {
             .collect::<Vec<f64>>(&pool.spawner())
             .iter()
             .sum();
-        let pos: f64 = pos_sum / self.pos_seqs.len() as f64;
-
 
         let neg_sum: f64 = self.neg_seqs
             .clone()
@@ -415,15 +507,20 @@ impl Individual for DyadMotif {
             .collect::<Vec<f64>>(&pool.spawner())
             .iter()
             .sum();
-        let neg: f64 = neg_sum / self.neg_seqs.len() as f64;
-        //println!("fitness (motif[0]={:?}): {}", [self.motif.scores[[0,0]], self.motif.scores[[0,1]]], neg / pos);
 
-        if pos == 0.0 {
+        if pos_sum == 0.0 {
             f64::INFINITY
-        } else if neg == 0.0 {
+        } else if neg_sum == 0.0 {
             0.0
         } else {
-            neg / pos
+            if self.pos_seqs.len() == self.neg_seqs.len() {
+                neg_sum / pos_sum
+            } else {
+                let pos: f64 = pos_sum / self.pos_seqs.len() as f64;
+                let neg: f64 = neg_sum / self.neg_seqs.len() as f64;
+
+                neg / pos
+            }
         }
     }
 
@@ -466,80 +563,27 @@ pub fn find_motifs(
 ) -> Vec<DyadMotif> {
     let indiv_ct = 100;
 
-    fn choose(
-        pos_v: &mut Vec<(Vec<u8>, f64)>,
-        neg_v: &mut Vec<(Vec<u8>, f64)>,
-    ) -> Option<(Vec<Vec<u8>>, Vec<Vec<u8>>)> {
-        pos_v.sort_by(|&(_, score_a), &(_, score_b)| {
-            score_b.partial_cmp(&score_a).expect("float sort")
-        });
-        neg_v.sort_by(|&(_, score_a), &(_, score_b)| {
-            score_b.partial_cmp(&score_a).expect("float sort")
-        });
-        let mut cutoff = 0;
-        for (i, &(_, score)) in pos_v.iter().enumerate() {
-            if score <= 0.9 {
-                break;
-            }
-            cutoff = i;
-        }
-        if cutoff == 0 {
-            return None;
-        }
-        Some((
-            pos_v
-                .iter()
-                .map(|&(ref s, _)| s.clone())
-                .take(cutoff)
-                .collect(),
-            neg_v
-                .iter()
-                .map(|&(ref s, _)| s.clone())
-                .take(cutoff)
-                .collect(),
-        ))
-    }
 
     let mut pool = make_pool(*CPU_COUNT).unwrap();
     let motifs = DyadMotif::motifs(chosen, pos_fname, neg_fname, choose);
-    info!("got {} motifs", motifs.len());
     motifs
         .iter()
         .enumerate()
         .map(|(idx, dyad)| {
 
             // dyad wraps the sequences chosen by our method
-            info!(
-                "unrefined motif #{}: {} (gap_len {})",
-                idx,
-                dyad.show_motif(),
-                dyad.gap_len
-            );
             let (score, mut new_dyad) = dyad.refine(100);
-            info!(
-                "motif #{} after refine: {}, score={}",
-                idx,
-                dyad.show_motif(),
-                score
-            );
 
             // now that the GA has [hopefully] improved our PWM, we need to choose new seqs
-            let mut pos_v = DyadMotif::eval_file(&mut pool, &new_dyad.motif, pos_fname);
-            let mut neg_v = DyadMotif::eval_file(&mut pool, &new_dyad.motif, neg_fname);
+            let mut pos_v = new_dyad.motif.eval_file(&mut pool, pos_fname);
+            let mut neg_v = new_dyad.motif.eval_file(&mut pool, neg_fname);
             let (pos_seqs, neg_seqs) =
                 choose(&mut pos_v, &mut neg_v).expect("motifs found bad one (2)");
-            info!("find_motifs - motif #{} - {} / {} seqs used", idx, pos_seqs.len(), pos_v.len());
             new_dyad.pos_seqs = pos_seqs;
             new_dyad.neg_seqs = neg_seqs;
 
             //new_dyad.repopulate_seqs(pos_fname, neg_fname, choose);
             let (score2, new2) = new_dyad.refine(100);
-            info!(
-                "motif #{} after second refine: {}, score={}",
-                idx,
-                new2.show_motif(),
-                score2
-            );
             new2
         })
         .collect()
@@ -610,7 +654,7 @@ mod tests {
         println!("score for present: {:?}", motif.score(b"GGAACGAAGTCCGTAGGGTCCATAGGAAAACCACTATGGGGCAGGATAATCATTAAAGGTCACTCGGTCGAGGCACAGATTGTGAGGAAGATGTAGGGGACCGTCGTTAAACCTAACGGACGGCTACACGGTTGTTGAAATGTCCCCCCCTTTTGCATTTTTCCTATGGGCGGCGACATAAAACTCGCAGACGAAGTTGGATATCTCCCGAATACGTGGACCGGCAGCATAACCAGACAAACGGGTAACTAACGTATGAGTGTGTCCAGCCACCATCCATAGGAAGTCCCATGAGTGAGCTTGATGATGTGAGGGCATGACATGTGCGGAAAACGAAGAACTAGGACCATAATGCAGGGCGACCTGCGCTCGAAACTCTGGATTACCATTTCCGCGGCCTAATATGGATCTCCTGTGTCTCGGATCCTTCAGGTCGACGTTCGGATCATACATGGGACTACAACGTGTCGATAGACCGCCAGACCTACACAAAGCATGCA"));
     }
 
-    fn choose(
+    fn choose_sm(
         pos_v: &mut Vec<(Vec<u8>, f64)>,
         neg_v: &mut Vec<(Vec<u8>, f64)>,
     ) -> Option<(Vec<Vec<u8>>, Vec<Vec<u8>>)> {
@@ -646,10 +690,77 @@ mod tests {
     #[test]
     fn test_find_motifs() {
         env_logger::init();
+        info!("################### test->test_find_motifs ###################");
         let v = DyadMotif::passing_kmers(POS_FNAME, NEG_FNAME);
+        info!("{} passing kmers", v.len());
         find_motifs(v, POS_FNAME, NEG_FNAME);
     }
 
+
+    #[test]
+    #[ignore]
+    fn blah() {
+        env_logger::init();
+
+        info!("################### test->blah ###################");
+
+        let m: Array2<f32> = Array::from(vec![
+            0.9962687,
+            0.0012437812,
+            0.0012437812,
+            0.0012437812,
+            0.9962687,
+            0.0012437812,
+            0.0012437812,
+            0.0012437812,
+            0.0012437812,
+            0.0012437812,
+            0.9962687,
+            0.0012437812,
+            0.9962687,
+            0.0012437812,
+            0.0012437812,
+            0.0012437812,
+            0.9962687,
+            0.0012437812,
+            0.0012437812,
+            0.0012437812,
+            0.0012437812,
+            0.0012437812,
+            0.9962687,
+            0.0012437812,
+            0.9962687,
+            0.0012437812,
+            0.0012437812,
+            0.0012437812,
+            0.0012437811,
+            0.0012437811,
+            0.0012437811,
+            0.99626863,
+            0.9962687,
+            0.0012437812,
+            0.0012437812,
+            0.0012437812,
+            0.0012437812,
+            0.9962687,
+            0.0012437812,
+            0.0012437812,
+            0.0012437812,
+            0.9962687,
+            0.0012437812,
+            0.0012437812,
+        ]).into_shape((11, 4))
+            .unwrap();
+        let motif = Motif::from(m);
+        println!("score: {:?}", motif.score(b"AGGGCAAGTAGCTGATTGAAGTAGCAGAGGCTGGCGTCCAAGCGGTAATAAACAAGCGATGAAAAATACTGAAGTACCTGGAGCCATTACTCAATAGGAGCAGTCCGTGAAACCTGTGCGGCGTGTAGCGAATGTTCGGCACATTATGTAAGAAGACATTTGCTTATTCACGAAATCAGCGCGAACCCTCCATCTGCCGA"));
+        let mut pool = make_pool(*CPU_COUNT).unwrap();
+
+        let mut p = motif.eval_file(&mut pool, POS_FNAME);
+        let mut n = motif.eval_file(&mut pool, NEG_FNAME);
+        println!("p: {:?}", p.iter().map(|t| t.1).collect::<Vec<f64>>());
+        let (pos_seqs, neg_seqs) = choose(&mut p, &mut n).expect("motifs found bad one (2)");
+        println!("pos_seqs.len: {}", pos_seqs.len());
+    }
 
     #[test]
     #[ignore]
