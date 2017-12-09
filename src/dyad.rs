@@ -18,17 +18,25 @@ use super::*;
 const P_CUTOFF: f64 = 0.001;
 
 #[derive(Debug, Clone)]
+pub enum MotifHistory {
+    Init,
+    Mutate,
+    Mean,
+    Reset,
+}
+
+#[derive(Debug, Clone)]
 pub struct DyadMotif {
     /// initial state based on kmers
     init: Motif,
+    /// history of actions that produced this motif
+    pub history: Vec<MotifHistory>,
     /// weights updated by GA
     pub motif: Motif,
     /// kmer len
     kmer_len: usize,
     /// gap len
     gap_len: usize,
-    /// kmer counts
-    ctr: GappedKmerCtr, // FIXME: REMOVE
     /// sequences matching our motif
     pos_seqs: Vec<Vec<u8>>,
     /// sequences representing background
@@ -149,10 +157,8 @@ impl DyadMotif {
                 continue;
             }
 
-            let copy = init.clone();
-
-            let mut pos_v = copy.eval_file(&mut pool, pos_fname);
-            let mut neg_v = copy.eval_file(&mut pool, neg_fname);
+            let mut pos_v = init.eval_file(&mut pool, pos_fname);
+            let mut neg_v = init.eval_file(&mut pool, neg_fname);
             let (pos_seqs, neg_seqs) =
                 chooser(&mut pos_v, &mut neg_v).expect("motifs found bad one (1)");
 
@@ -162,10 +168,12 @@ impl DyadMotif {
                 pos_v.len()
             );
 
+            let copy = init.clone();
+
             dyads.push(DyadMotif {
                 init: init,
+                history: vec![ MotifHistory::Init ],
                 motif: copy,
-                ctr: GappedKmerCtr::new(KMER_LEN, MIN_GAP, MAX_GAP),
                 kmer_len: KMER_LEN,
                 gap_len: MIN_GAP + k,
                 pos_seqs: pos_seqs,
@@ -184,8 +192,11 @@ impl DyadMotif {
         let mut init = (0..mut_ct)
             .map(|_| self.clone())
             .collect::<Vec<DyadMotif>>();
+        let (_, mut means_based) = self.clone().refine_mean(0);
+        init.push(means_based);
         for ind in init.iter_mut() {
             ind.mutate();
+            ind.history.push( MotifHistory::Mutate );
         }
 
 
@@ -234,12 +245,14 @@ impl DyadMotif {
             String::from_utf8(m.degenerate_consensus()).unwrap()
         );
 
+        let mut hist = self.history.to_owned();
+        hist.push( MotifHistory::Mean );
         let mut d = DyadMotif {
-            init: self.motif.clone(),
+            init: self.init.clone(),
+            history: hist,
             motif: m,
             kmer_len: self.kmer_len,
             gap_len: self.gap_len,
-            ctr: self.ctr.clone(),
             pos_seqs: self.pos_seqs.clone(),
             neg_seqs: self.neg_seqs.clone(),
         };
@@ -251,7 +264,7 @@ impl DyadMotif {
     }
 
     pub fn refine(&self, mut_ct: usize) -> (f64, DyadMotif) {
-        self.refine_mean(mut_ct)
+        self.refine_GA(mut_ct)
     }
 
     /// stringified self.motif.degenerate_consensus()
@@ -530,6 +543,7 @@ impl Individual for DyadMotif {
         println!("-- reset");
         // bases == 4
         self.motif = self.init.clone();
+        self.history.push( MotifHistory::Reset );
     }
 
 

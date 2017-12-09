@@ -3,6 +3,7 @@ extern crate gundam;
 extern crate log;
 extern crate env_logger;
 extern crate chrono;
+extern crate darwin_rs;
 
 use std::env;
 use std::process::exit;
@@ -11,6 +12,7 @@ use std::fs::File;
 use chrono::Local;
 use env_logger::LogBuilder;
 use gundam::*;
+use darwin_rs::individual::Individual;
 
 
 fn main() {
@@ -57,8 +59,11 @@ fn main() {
 
     info!("got {} indices", indices.len());
 
-    for (idx, d) in find_motifs(indices, &args[2], &args[3]).iter().enumerate() {
+    for (idx, mut d) in find_motifs(indices, &args[2], &args[3]).into_iter().enumerate() {
+
         println!("{}: {}", idx, d.show_motif());
+        println!("{}: {}", idx, d.calculate_fitness());
+        println!("{}: {:?}", idx, d.history);
         println!("{}: {:?}", idx, d.motif.scores);
     }
 
