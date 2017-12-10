@@ -59,7 +59,10 @@ fn main() {
 
     info!("got {} indices", indices.len());
 
-    for (idx, mut d) in find_motifs(indices, &args[2], &args[3]).into_iter().enumerate() {
+    for (idx, mut d) in find_motifs(indices, &args[2], &args[3])
+        .into_iter()
+        .enumerate()
+    {
 
         println!("{}: {}", idx, d.show_motif());
         println!("{}: {}", idx, d.calculate_fitness());

@@ -22,6 +22,7 @@ pub enum MotifHistory {
     Init,
     Mutate,
     Mean,
+    MeanDiff,
     Reset,
 }
 
@@ -172,7 +173,7 @@ impl DyadMotif {
 
             dyads.push(DyadMotif {
                 init: init,
-                history: vec![ MotifHistory::Init ],
+                history: vec![MotifHistory::Init],
                 motif: copy,
                 kmer_len: KMER_LEN,
                 gap_len: MIN_GAP + k,
@@ -189,26 +190,29 @@ impl DyadMotif {
     pub fn refine_GA(&self, mut_ct: usize) -> (f64, DyadMotif) {
 
         // make an initial population of 100 copies of the motif
-        let mut init = (0..mut_ct)
+        let mut init_pop = (0..mut_ct)
             .map(|_| self.clone())
             .collect::<Vec<DyadMotif>>();
-        let (_, mut means_based) = self.clone().refine_mean(0);
-        init.push(means_based);
-        for ind in init.iter_mut() {
+        for ind in init_pop.iter_mut() {
             ind.mutate();
-            ind.history.push( MotifHistory::Mutate );
+            ind.history.push(MotifHistory::Mutate);
         }
 
+        let (_, mut means_based) = self.clone().refine_mean(0);
+        init_pop.push(means_based);
+
+        let (_, mut meansdiv_based) = self.clone().refine_meandiv(0);
+        init_pop.push(meansdiv_based);
 
         let population1 = PopulationBuilder::<DyadMotif>::new()
-                .initial_population(&init)
+                .initial_population(&init_pop)
                 .increasing_exp_mutation_rate(1.03)
                 .reset_limit_end(0) // disable resetting
                 .finalize()
                 .expect("PopulationBuilder");
         let mut sim = SimulationBuilder::<DyadMotif>::new()
             .iterations(11)
-            .threads(*CPU_COUNT)
+            .threads(1)
             .add_population(population1)
             .finalize()
             .expect("some problem making builder");
@@ -225,28 +229,19 @@ impl DyadMotif {
     /// simple means-based refinement
     pub fn refine_mean(&self, _mut_ct: usize) -> (f64, DyadMotif) {
         let (len, _) = self.motif.scores.dim();
-        let mut new_scores = Array2::from_elem((len, 4), 0.05);
-        println!("-- calc mean from {} seqs", self.pos_seqs.len());
-        for seq in self.pos_seqs.iter() {
-            let loc = self.motif
-                .score(seq.as_slice())
-                .expect("refine_mean - loc")
-                .loc;
-            for i in 0..len {
-                new_scores[[i, BasePos::get(seq[loc + i])]] += 1.0;
-            }
-        }
+        let new_scores = self.motif.tally(&self.pos_seqs);
+
         let mut m = Motif::from(new_scores);
         m.normalize_scores();
         m.calc_minmax();
 
-        println!(
+        info!(
             "mean: {:?}",
             String::from_utf8(m.degenerate_consensus()).unwrap()
         );
 
         let mut hist = self.history.to_owned();
-        hist.push( MotifHistory::Mean );
+        hist.push(MotifHistory::Mean);
         let mut d = DyadMotif {
             init: self.init.clone(),
             history: hist,
@@ -263,6 +258,39 @@ impl DyadMotif {
         (score, d)
     }
 
+    /// tally base-matches for positive seqs as in refine_mean, but also tally
+    /// negetive seqs and divide positive tallies by negative before normalizing
+    pub fn refine_meandiv(&self, _mut_ct: usize) -> (f64, DyadMotif) {
+        let (len, _) = self.motif.scores.dim();
+        let pos_tally = self.motif.tally(&self.pos_seqs);
+        let neg_tally = self.motif.tally(&self.neg_seqs);
+
+        let mut m = Motif::from(pos_tally / neg_tally);
+        m.normalize_scores();
+        m.calc_minmax();
+
+        info!(
+            "mean: {:?}",
+            String::from_utf8(m.degenerate_consensus()).unwrap()
+        );
+
+        let mut hist = self.history.to_owned();
+        hist.push(MotifHistory::MeanDiff);
+        let mut d = DyadMotif {
+            init: self.init.clone(),
+            history: hist,
+            motif: m,
+            kmer_len: self.kmer_len,
+            gap_len: self.gap_len,
+            pos_seqs: self.pos_seqs.clone(),
+            neg_seqs: self.neg_seqs.clone(),
+        };
+        //println!("dyad from mean: {:?}", &d);
+
+        let score = d.calculate_fitness();
+        println!(" --> score {}", score);
+        (score, d)
+    }
     pub fn refine(&self, mut_ct: usize) -> (f64, DyadMotif) {
         self.refine_GA(mut_ct)
     }
@@ -276,6 +304,7 @@ impl DyadMotif {
 trait MatrixPlus {
     fn eval_file(&self, pool: &mut Pool, fname: &str) -> Vec<(Vec<u8>, f64)>;
     fn normalize_scores(&mut self);
+    fn tally(&self, seqs: &Vec<Vec<u8>>) -> Array2<f32>;
 }
 
 impl MatrixPlus for Motif {
@@ -308,6 +337,7 @@ impl MatrixPlus for Motif {
         );
         v
     }
+
     /// normalize scores in-place by summing each column and dividing each value
     fn normalize_scores(&mut self) {
         let (width, bases) = self.scores.dim();
@@ -321,6 +351,18 @@ impl MatrixPlus for Motif {
                 self.scores[[i, j]] = self.scores[[i, j]] / tot;
             }
         }
+    }
+    /// initializes array to 1.0, then increments for each base match
+    fn tally(&self, seqs: &Vec<Vec<u8>>) -> Array2<f32> {
+        let (len, _) = self.scores.dim();
+        let mut new_scores = Array2::from_elem((len, 4), 1.0);
+        for seq in seqs.iter() {
+            let loc = self.score(seq.as_slice()).expect("refine_mean - loc").loc;
+            for i in 0..len {
+                new_scores[[i, BasePos::get(seq[loc + i])]] += 1.0;
+            }
+        }
+        new_scores
     }
 }
 
@@ -543,7 +585,7 @@ impl Individual for DyadMotif {
         println!("-- reset");
         // bases == 4
         self.motif = self.init.clone();
-        self.history.push( MotifHistory::Reset );
+        self.history.push(MotifHistory::Reset);
     }
 
 
