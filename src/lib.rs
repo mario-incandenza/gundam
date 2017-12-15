@@ -34,7 +34,7 @@ pub use dyad::find_motifs;
 
 const KMER_LEN: usize = 5;
 const MIN_GAP: usize = 0;
-const MAX_GAP: usize = 6;
+const MAX_GAP: usize = 20;
 const MUT_INCR: f32 = 0.2;
 const MIN_SCORE: f32 = 0.9;
 
@@ -105,29 +105,6 @@ mod tests {
         println!("score for present: {:?}", motif.score(b"GGAACGAAGTCCGTAGGGTCCATAGGAAAACCACTATGGGGCAGGATAATCATTAAAGGTCACTCGGTCGAGGCACAGATTGTGAGGAAGATGTAGGGGACCGTCGTTAAACCTAACGGACGGCTACACGGTTGTTGAAATGTCCCCCCCTTTTGCATTTTTCCTATGGGCGGCGACATAAAACTCGCAGACGAAGTTGGATATCTCCCGAATACGTGGACCGGCAGCATAACCAGACAAACGGGTAACTAACGTATGAGTGTGTCCAGCCACCATCCATAGGAAGTCCCATGAGTGAGCTTGATGATGTGAGGGCATGACATGTGCGGAAAACGAAGAACTAGGACCATAATGCAGGGCGACCTGCGCTCGAAACTCTGGATTACCATTTCCGCGGCCTAATATGGATCTCCTGTGTCTCGGATCCTTCAGGTCGACGTTCGGATCATACATGGGACTACAACGTGTCGATAGACCGCCAGACCTACACAAAGCATGCA"));
     }
 
-    fn choose(
-        pos_v: &mut Vec<(Vec<u8>, f64)>,
-        neg_v: &mut Vec<(Vec<u8>, f64)>,
-    ) -> Option<(Vec<Vec<u8>>, Vec<Vec<u8>>)> {
-        pos_v.sort_by(|&(_, score_a), &(_, score_b)| {
-            score_b.partial_cmp(&score_a).expect("float sort")
-        });
-        neg_v.sort_by(|&(_, score_a), &(_, score_b)| {
-            score_b.partial_cmp(&score_a).expect("float sort")
-        });
-        Some((
-            pos_v
-                .iter()
-                .map(|&(ref s, _)| s.clone())
-                .take(100)
-                .collect(),
-            neg_v
-                .iter()
-                .map(|&(ref s, _)| s.clone())
-                .take(100)
-                .collect(),
-        ))
-    }
 
     #[test]
     #[ignore]
