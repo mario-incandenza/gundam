@@ -13,7 +13,7 @@ path = "src/choose.rs"
 
 
 [dependencies]
-pssm = { git = "https://github.com/ortho-the-d-stice/rust-pssm" }
+pssm = { path = "../rust-pssm" } # git = "https://github.com/ortho-the-d-stice/rust-pssm" }
 bio = "*"
 rand = "*"
 ndarray = "0.10"

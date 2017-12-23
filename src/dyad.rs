@@ -181,6 +181,11 @@ impl DyadMotif {
                     String::from_utf8(init.degenerate_consensus()).expect("show_motif Q")
                 );
                 continue;
+            } else {
+                info!(
+                    "good motif {}<{}>{}: {}", i, k, j,
+                    String::from_utf8(init.degenerate_consensus()).expect("show_motif R")
+                );
             }
 
             let mut pos_v = init.eval_file(&mut pool, pos_fname);
@@ -229,6 +234,9 @@ impl DyadMotif {
         let (_, mut meansdiv_based) = self.clone().refine_meandiv();
         init_pop.push(meansdiv_based);
 
+        let (_, mut mode_based) = self.clone().refine_via_mode();
+        init_pop.push(mode_based);
+
         let population1 = PopulationBuilder::<DyadMotif>::new()
                 .initial_population(&init_pop)
                 .increasing_exp_mutation_rate(1.03)
@@ -255,7 +263,7 @@ impl DyadMotif {
     pub fn refine_mean(&self, _mut_ct: usize) -> (f64, DyadMotif) {
         let len = self.motif.len();
         let new_scores = self.motif.tally(
-            self.pos_seqs.iter().map(|&(ref seq, _)| seq)
+            self.pos_seqs.iter().map(|&(ref seq, _)| seq),
         );
 
         let mut m = Motif::from(new_scores);
@@ -363,19 +371,39 @@ impl DyadMotif {
         let mut motif = Motif::from(m);
         motif.normalize_scores();
         motif.calc_minmax();
+        info!(
+            "mode: {:?}",
+            String::from_utf8(motif.degenerate_consensus()).unwrap()
+        );
 
-        let pos = self.pos_seqs
+        let mut pos: Vec<(Vec<u8>, ScoredPos)> = self.pos_seqs
             .iter()
             .map(|&(ref seq, _)| {
                 (seq.clone(), motif.score(seq).expect("mode pos"))
             })
             .collect();
-        let neg = self.neg_seqs
+        pos.sort_by(|&(_, ref score_a), &(_, ref score_b)| {
+            score_b.sum.partial_cmp(&score_a.sum).expect("float sort")
+        });
+        let mut cutoff = 0;
+        for (i, &(_, ref score)) in pos.iter().enumerate() {
+            if score.sum <= 0.9 {
+                break;
+            }
+            cutoff = i;
+        }
+
+        info!("mode cutoff of {} on {}", cutoff, pos.len());
+
+        let mut neg: Vec<(Vec<u8>, ScoredPos)> = self.neg_seqs
             .iter()
             .map(|&(ref seq, _)| {
                 (seq.clone(), motif.score(seq).expect("mode neg"))
             })
             .collect();
+        neg.sort_by(|&(_, ref score_a), &(_, ref score_b)| {
+            score_b.sum.partial_cmp(&score_a.sum).expect("float sort")
+        });
         let mut hist = self.history.clone();
         hist.push(MotifHistory::Mode);
         let mut d = DyadMotif {
@@ -384,8 +412,8 @@ impl DyadMotif {
             motif: motif,
             kmer_len: self.kmer_len,
             gap_len: self.gap_len,
-            pos_seqs: pos,
-            neg_seqs: neg,
+            pos_seqs: pos.iter().take(cutoff).cloned().collect(),
+            neg_seqs: neg.iter().take(cutoff).cloned().collect(),
         };
         let score = d.calculate_fitness();
         (score, d)
@@ -404,7 +432,9 @@ impl DyadMotif {
 trait MatrixPlus {
     fn eval_file(&self, pool: &mut Pool, fname: &str) -> Vec<(Vec<u8>, ScoredPos)>;
     fn normalize_scores(&mut self);
-    fn tally<'a, I>(&self, seqs: I) -> Array2<f32>  where I: Iterator<Item = &'a Vec<u8>>;
+    fn tally<'a, I>(&self, seqs: I) -> Array2<f32>
+    where
+        I: Iterator<Item = &'a Vec<u8>>;
 }
 
 impl MatrixPlus for Motif {
@@ -453,7 +483,10 @@ impl MatrixPlus for Motif {
         }
     }
     /// initializes array to 1.0, then increments for each base match
-    fn tally<'a, I>(&self, seqs: I) -> Array2<f32>  where I: Iterator<Item = &'a Vec<u8>> {
+    fn tally<'a, I>(&self, seqs: I) -> Array2<f32>
+    where
+        I: Iterator<Item = &'a Vec<u8>>,
+    {
         let (len, _) = self.scores.dim();
         let mut new_scores = Array2::from_elem((len, 4), 1.0);
         for ref seq in seqs {

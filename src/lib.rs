@@ -42,6 +42,19 @@ lazy_static! {
     pub static ref CPU_COUNT: usize = num_cpus::get();
 }
 
+/*
+type ScoredSeqs = Vec<(String,f32)>;
+
+pub fn export_scores(dyad: &DyadMotif) -> (ScoredSeqs, ScoredSeqs)
+
+pub fn get_dyad(*Vec<DyadMotif>, idx) -> DyadMotif (serde)
+
+pub fn refine_GA(*Vec..., idx) -> idx of new
+
+pub fn refine_mean(*Vec..., idx) -> idx of new
+
+pub fn winnow_seqs(*Vec, idx, Vec<idx>)
+*/
 
 #[cfg(test)]
 mod tests {
