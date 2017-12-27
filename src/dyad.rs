@@ -18,7 +18,7 @@ use super::*;
 const P_CUTOFF: f64 = 0.001;
 const MODAL_MAX_SEQS: usize = 400;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub enum MotifHistory {
     Init,
     Mutate,
@@ -29,7 +29,7 @@ pub enum MotifHistory {
 }
 
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct DyadMotif {
     /// initial state based on kmers
     init: Motif,
@@ -183,7 +183,10 @@ impl DyadMotif {
                 continue;
             } else {
                 info!(
-                    "good motif {}<{}>{}: {}", i, k, j,
+                    "good motif {}<{}>{}: {}",
+                    i,
+                    k,
+                    j,
                     String::from_utf8(init.degenerate_consensus()).expect("show_motif R")
                 );
             }

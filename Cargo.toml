@@ -3,6 +3,11 @@ name = "gundam"
 version = "0.1.0"
 authors = ["mario incandenza"]
 
+[lib]
+name = "gundam"
+crate-type = ["cdylib","rlib"]
+
+
 [[bin]]
 name = "gundam"
 path = "src/main.rs"
@@ -13,7 +18,8 @@ path = "src/choose.rs"
 
 
 [dependencies]
-pssm = { path = "../rust-pssm" } # git = "https://github.com/ortho-the-d-stice/rust-pssm" }
+pssm = { path = "../rust-pssm" }
+# { git = "https://github.com/ortho-the-d-stice/rust-pssm", rev = "64c84e9d80b13994fcdf41ee589cdf5befacbbc4" }
 bio = "*"
 rand = "*"
 ndarray = "0.10"
@@ -25,3 +31,6 @@ fishers_exact = { git = "https://github.com/mario-incandenza/fishers_exact" }
 chrono = "*"
 lazy_static = "1.0"
 num_cpus = "1.0"
+serde = "1.0"
+serde_derive = "1.0"
+serde_json = "1.0"

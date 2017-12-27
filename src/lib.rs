@@ -12,6 +12,15 @@ extern crate fishers_exact;
 extern crate num_cpus;
 #[macro_use]
 extern crate lazy_static;
+#[macro_use]
+extern crate serde_derive;
+
+extern crate serde;
+extern crate serde_json;
+
+use std::ffi::{CStr, CString};
+use std::os::raw::{c_char, c_void};
+use std::mem;
 
 use jobsteal::{make_pool, BorrowSpliteratorMut, Spliterator, Pool};
 use std::f64;
@@ -42,8 +51,11 @@ lazy_static! {
     pub static ref CPU_COUNT: usize = num_cpus::get();
 }
 
+type ScoredSeqs = Vec<(String, f32)>;
+
 /*
-type ScoredSeqs = Vec<(String,f32)>;
+
+interface ideas:
 
 pub fn export_scores(dyad: &DyadMotif) -> (ScoredSeqs, ScoredSeqs)
 
@@ -54,7 +66,60 @@ pub fn refine_GA(*Vec..., idx) -> idx of new
 pub fn refine_mean(*Vec..., idx) -> idx of new
 
 pub fn winnow_seqs(*Vec, idx, Vec<idx>)
+
+pub fn shannon_entropy( Vec<seq> ) -> f32
 */
+
+
+#[no_mangle]
+pub extern "C" fn release_str(somestr: *mut c_char) {
+    unsafe {
+        CString::from_raw(somestr);
+    }
+}
+
+/// wrapper for DyadMotif::motifs
+#[no_mangle]
+pub extern "C" fn read_kmers(
+    _kmers_s: *const c_char,
+    _pos_fname: *const c_char,
+    _neg_fname: *const c_char,
+) -> *mut c_void {
+    let kmers_s = unsafe { CStr::from_ptr(_kmers_s).to_string_lossy().into_owned() };
+    let pos_fname = unsafe { CStr::from_ptr(_pos_fname).to_string_lossy().into_owned() };
+    let neg_fname = unsafe { CStr::from_ptr(_neg_fname).to_string_lossy().into_owned() };
+    let kmers: Vec<(usize, usize, usize, f64)> =
+        serde_json::from_str(&kmers_s).expect("deser kmers");
+    let motifs = Box::new(DyadMotif::motifs(kmers, &pos_fname, &neg_fname, choose));
+    Box::into_raw(motifs) as *mut c_void
+}
+
+
+/// input:
+///    _dyads - Vec<DyadMotif> as returned by read_kmers
+///    idx - u32
+/// output:
+///    DyadMotif at position idx, encoded as JSON
+#[no_mangle]
+pub extern "C" fn get_dyad(_dyads: *const c_void, idx: u32) -> *const c_char {
+    let dyads: &Vec<DyadMotif> = unsafe { mem::transmute(_dyads) };
+
+    CString::new(serde_json::to_string(&dyads[idx as usize]).expect(
+        "get_dyad - ser",
+    )).expect("get_dyad")
+        .into_raw()
+}
+
+/// input:
+///    _dyads - Vec<DyadMotif> as returned by read_kmers
+/// output:
+///    length of vec
+#[no_mangle]
+pub extern "C" fn get_len(_dyads: *const c_void) -> u32 {
+    let dyads: &Vec<DyadMotif> = unsafe { mem::transmute(_dyads) };
+    dyads.len() as u32
+}
+
 
 #[cfg(test)]
 mod tests {
