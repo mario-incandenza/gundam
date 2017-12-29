@@ -133,6 +133,22 @@ pub extern "C" fn info_content(_dyads: *const c_void, idx: u32) -> f32 {
     dyads[idx as usize].motif.info_content()
 }
 
+
+/// input:
+///    _dyads - Vec<DyadMotif> as returned by read_kmers
+///    idx - u32
+/// output:
+///    information content of motif
+#[no_mangle]
+pub extern "C" fn show_motif(_dyads: *const c_void, idx: u32) -> *const c_char {
+    let dyads: &Vec<DyadMotif> = unsafe { mem::transmute(_dyads) };
+
+    CString::new( dyads[idx as usize].show_motif() )
+        .expect("get_dyad")
+        .into_raw()
+}
+
+
 /// creates a new DyadMotif and appends it to the vec, returning
 /// indes of new motif
 /// input:

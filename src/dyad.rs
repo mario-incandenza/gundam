@@ -271,14 +271,10 @@ impl DyadMotif {
             self.pos_seqs.iter().map(|&(ref seq, _)| seq),
         );
 
+
         let mut m = Motif::from(new_scores);
         m.normalize_scores();
         m.calc_minmax();
-
-        info!(
-            "mean: {:?}",
-            String::from_utf8(m.degenerate_consensus()).unwrap()
-        );
 
         let mut hist = self.history.to_owned();
         hist.push(MotifHistory::Mean);
@@ -288,10 +284,12 @@ impl DyadMotif {
             motif: m,
             kmer_len: self.kmer_len,
             gap_len: self.gap_len,
-            pos_seqs: self.pos_seqs.clone(),
-            neg_seqs: self.neg_seqs.clone(),
+            pos_seqs: self.pos_seqs.to_vec(),
+            neg_seqs: self.neg_seqs.to_vec(),
             score: f64::NAN,
         };
+
+
         d.calculate_fitness();
         d
     }
@@ -324,8 +322,8 @@ impl DyadMotif {
             motif: m,
             kmer_len: self.kmer_len,
             gap_len: self.gap_len,
-            pos_seqs: self.pos_seqs.clone(),
-            neg_seqs: self.neg_seqs.clone(),
+            pos_seqs: self.pos_seqs.to_vec(),
+            neg_seqs: self.neg_seqs.to_vec(),
             score: f64::NAN,
         };
 

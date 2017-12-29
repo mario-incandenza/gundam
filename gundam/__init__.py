@@ -25,6 +25,10 @@ lib.simple_mean.restype = ctypes.c_uint
 lib.info_content.argtypes = [ctypes.c_void_p, ctypes.c_uint]
 lib.info_content.restype = ctypes.c_float
 
+lib.show_motif.argtypes = [ctypes.c_void_p, ctypes.c_uint]
+lib.show_motif.restype = ctypes.c_void_p
+
+
 class Gundam(object):
     names = None
     state = None
@@ -48,12 +52,19 @@ class Gundam(object):
             idx = self.names[ idx ]
         if idx >= siz:
             raise IndexError("{} > {}".format(idx,siz))
+
         p = lib.get_dyad(self.state, idx)
         # if we treat the char * as such, Python will try to release the memory,
         #   so instead we use this void * hack
         s = ctypes.cast(p, ctypes.c_char_p).value
         lib.release_str(p)
-        return json.loads(s)
+        dyad = json.loads(s)
+
+        p = lib.show_motif(self.state, idx)
+        s = ctypes.cast(p, ctypes.c_char_p).value
+        lib.release_str(p)
+        dyad['repr'] = s
+        return dyad
 
     def add_mean(self, idx, name=None):
         siz = len(self)
