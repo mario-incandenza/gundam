@@ -121,6 +121,37 @@ pub extern "C" fn get_len(_dyads: *const c_void) -> u32 {
 }
 
 
+/// input:
+///    _dyads - Vec<DyadMotif> as returned by read_kmers
+///    idx - u32
+/// output:
+///    information content of motif
+#[no_mangle]
+pub extern "C" fn info_content(_dyads: *const c_void, idx: u32) -> f32 {
+    let dyads: &Vec<DyadMotif> = unsafe { mem::transmute(_dyads) };
+
+    dyads[idx as usize].motif.info_content()
+}
+
+/// creates a new DyadMotif and appends it to the vec, returning
+/// indes of new motif
+/// input:
+///    _dyads - Vec<DyadMotif> as returned by read_kmers
+///    idx - u32
+/// output:
+///    index of new motif
+#[no_mangle]
+pub extern "C" fn simple_mean(_dyads: *const c_void, idx: u32) -> u32 {
+    let dyads: &mut Vec<DyadMotif> = unsafe { mem::transmute(_dyads) };
+
+    let new = dyads[idx as usize].refine_mean();
+    let new_idx = dyads.len();
+    dyads.push(new);
+    new_idx as u32
+}
+
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -189,7 +220,7 @@ mod tests {
     fn test_find() {
         let v = DyadMotif::passing_kmers(POS_FNAME, NEG_FNAME);
         let dyads = DyadMotif::motifs(v, POS_FNAME, NEG_FNAME, choose);
-        let (score, new_dyad) = dyads[0].refine(100);
+        let new_dyad = dyads[0].refine(100);
 
     }
 
