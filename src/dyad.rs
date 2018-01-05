@@ -42,9 +42,9 @@ pub struct DyadMotif {
     /// gap len
     pub gap_len: usize,
     /// sequences matching our motif
-    pub pos_seqs: Vec<(Vec<u8>, ScoredPos)>,
+    pub pos_seqs: Vec<(usize, Vec<u8>, ScoredPos)>,
     /// sequences representing background
-    pub neg_seqs: Vec<(Vec<u8>, ScoredPos)>,
+    pub neg_seqs: Vec<(usize, Vec<u8>, ScoredPos)>,
     /// score - sum(neg) / sum(pos)
     pub score: f64,
 }
@@ -159,9 +159,9 @@ impl DyadMotif {
         chooser: F,
     ) -> Vec<DyadMotif>
     where
-        F: Fn(&mut Vec<(Vec<u8>, ScoredPos)>,
-           &mut Vec<(Vec<u8>, ScoredPos)>)
-           -> Option<(Vec<(Vec<u8>, ScoredPos)>, Vec<(Vec<u8>, ScoredPos)>)>,
+        F: Fn(&mut Vec<(usize, Vec<u8>, ScoredPos)>,
+           &mut Vec<(usize, Vec<u8>, ScoredPos)>)
+           -> Option<(Vec<(usize, Vec<u8>, ScoredPos)>, Vec<(usize, Vec<u8>, ScoredPos)>)>,
     {
         info!("using {} cpus", *CPU_COUNT);
         let mut pool = make_pool(*CPU_COUNT).unwrap();
@@ -268,7 +268,7 @@ impl DyadMotif {
     pub fn refine_mean(&self) -> DyadMotif {
         let len = self.motif.len();
         let new_scores = self.motif.tally(
-            self.pos_seqs.iter().map(|&(ref seq, _)| seq),
+            self.pos_seqs.iter().map(|&(_, ref seq, _)| seq),
         );
 
 
@@ -299,10 +299,10 @@ impl DyadMotif {
     pub fn refine_meandiv(&self) -> DyadMotif {
         let len = self.motif.len();
         let pos_tally = self.motif.tally(
-            self.pos_seqs.iter().map(|&(ref seq, _)| seq),
+            self.pos_seqs.iter().map(|&(_, ref seq, _)| seq),
         );
         let neg_tally = self.motif.tally(
-            self.neg_seqs.iter().map(|&(ref seq, _)| seq),
+            self.neg_seqs.iter().map(|&(_, ref seq, _)| seq),
         );
 
         let mut m = Motif::from(pos_tally / neg_tally);
@@ -342,9 +342,9 @@ impl DyadMotif {
         let mut diffs: Array2<usize> = Array2::zeros((seq_ct, seq_ct));
         for i in 0..seq_ct {
             for j in i..seq_ct {
-                let (ref a_seq, ScoredPos { ref loc, .. }) = self.pos_seqs[i];
+                let (_, ref a_seq, ScoredPos { ref loc, .. }) = self.pos_seqs[i];
                 let a = &a_seq[*loc..*loc + pwm_len];
-                let (ref b_seq, ScoredPos { ref loc, .. }) = self.pos_seqs[j];
+                let (_, ref b_seq, ScoredPos { ref loc, .. }) = self.pos_seqs[j];
                 let b = &b_seq[*loc..*loc + pwm_len];
 
                 diffs[[i, j]] = hamming(a, b);
@@ -363,7 +363,7 @@ impl DyadMotif {
                 best_score = score;
             }
         }
-        let (ref seq, ScoredPos { ref loc, .. }) = self.pos_seqs[best_i];
+        let (_, ref seq, ScoredPos { ref loc, .. }) = self.pos_seqs[best_i];
 
         let mut m = self.motif.scores.clone();
         for (i, b) in seq[*loc..*loc + pwm_len].iter().enumerate() {
@@ -377,17 +377,17 @@ impl DyadMotif {
             String::from_utf8(motif.degenerate_consensus()).unwrap()
         );
 
-        let mut pos: Vec<(Vec<u8>, ScoredPos)> = self.pos_seqs
+        let mut pos: Vec<(usize, Vec<u8>, ScoredPos)> = self.pos_seqs
             .iter()
-            .map(|&(ref seq, _)| {
-                (seq.clone(), motif.score(seq).expect("mode pos"))
+            .map(|&(idx, ref seq, _)| {
+                (idx, seq.clone(), motif.score(seq).expect("mode pos"))
             })
             .collect();
-        pos.sort_by(|&(_, ref score_a), &(_, ref score_b)| {
+        pos.sort_by(|&(_, _, ref score_a), &(_, _, ref score_b)| {
             score_b.sum.partial_cmp(&score_a.sum).expect("float sort")
         });
         let mut cutoff = 0;
-        for (i, &(_, ref score)) in pos.iter().enumerate() {
+        for (i, &(_, _, ref score)) in pos.iter().enumerate() {
             if score.sum <= 0.9 {
                 break;
             }
@@ -396,13 +396,13 @@ impl DyadMotif {
 
         info!("mode cutoff of {} on {}", cutoff, pos.len());
 
-        let mut neg: Vec<(Vec<u8>, ScoredPos)> = self.neg_seqs
+        let mut neg: Vec<(usize, Vec<u8>, ScoredPos)> = self.neg_seqs
             .iter()
-            .map(|&(ref seq, _)| {
-                (seq.clone(), motif.score(seq).expect("mode neg"))
+            .map(|&(idx, ref seq, _)| {
+                (idx, seq.clone(), motif.score(seq).expect("mode neg"))
             })
             .collect();
-        neg.sort_by(|&(_, ref score_a), &(_, ref score_b)| {
+        neg.sort_by(|&(_, _, ref score_a), &(_, _, ref score_b)| {
             score_b.sum.partial_cmp(&score_a.sum).expect("float sort")
         });
         let mut hist = self.history.clone();
@@ -432,7 +432,7 @@ impl DyadMotif {
 }
 
 pub trait MatrixPlus {
-    fn eval_file(&self, pool: &mut Pool, fname: &str) -> Vec<(Vec<u8>, ScoredPos)>;
+    fn eval_file(&self, pool: &mut Pool, fname: &str) -> Vec<(usize, Vec<u8>, ScoredPos)>;
     fn normalize_scores(&mut self);
     fn tally<'a, I>(&self, seqs: I) -> Array2<f32>
     where
@@ -442,17 +442,18 @@ pub trait MatrixPlus {
 
 impl MatrixPlus for Motif {
     /// apply motif to sequences in a FASTA file, returning sequences and scores
-    fn eval_file(&self, pool: &mut Pool, fname: &str) -> Vec<(Vec<u8>, ScoredPos)> {
+    fn eval_file(&self, pool: &mut Pool, fname: &str) -> Vec<(usize, Vec<u8>, ScoredPos)> {
 
         // FIXME: b/c we wind up re-analyzing these files again and again,
         // we should probably just read into memory once and be done w/ it
         let mut v = Vec::new();
-        for _rec in fasta::Reader::from_file(fname)
+        for (idx, _rec) in fasta::Reader::from_file(fname)
             .expect(format!("couldn't open {}", fname).as_str())
             .records()
+            .enumerate()
         {
             let rec = _rec.expect("unwrap record");
-            v.push((rec.seq().to_vec(), ScoredPos::default()));
+            v.push((idx, rec.seq().to_vec(), ScoredPos::default()));
         }
 
         if v.len() == 0 {
@@ -461,9 +462,9 @@ impl MatrixPlus for Motif {
 
         v.split_iter_mut().for_each(
             &pool.spawner(),
-            |p| match self.score(&p.0) {
+            |p| match self.score(&p.1) {
                 Some(sp) => {
-                    p.1 = sp;
+                    p.2 = sp;
                 }
                 _ => (),
             },
@@ -510,7 +511,13 @@ impl MatrixPlus for Motif {
         where
             I: Iterator<Item = &'a f32>,
         {
-            probs.map(|p| if *p == 0.0 { 0.0 } else { -1.0 * *p * p.log(2.0) } ).sum()
+            probs
+                .map(|p| if *p == 0.0 {
+                    0.0
+                } else {
+                    -1.0 * *p * p.log(2.0)
+                })
+                .sum()
         }
 
         let mut tot = 0.0;
@@ -526,33 +533,33 @@ impl MatrixPlus for Motif {
 
 /// choose samples for EM
 pub fn choose(
-    pos_v: &mut Vec<(Vec<u8>, ScoredPos)>,
-    neg_v: &mut Vec<(Vec<u8>, ScoredPos)>,
-) -> Option<(Vec<(Vec<u8>, ScoredPos)>, Vec<(Vec<u8>, ScoredPos)>)> {
-    pos_v.sort_by(|&(_, ref score_a), &(_, ref score_b)| {
+    pos_v: &mut Vec<(usize, Vec<u8>, ScoredPos)>,
+    neg_v: &mut Vec<(usize, Vec<u8>, ScoredPos)>,
+) -> Option<(Vec<(usize, Vec<u8>, ScoredPos)>, Vec<(usize, Vec<u8>, ScoredPos)>)> {
+    pos_v.sort_by(|&(_, _, ref score_a), &(_, _, ref score_b)| {
         score_b.sum.partial_cmp(&score_a.sum).expect("float sort")
     });
-    neg_v.sort_by(|&(_, ref score_a), &(_, ref score_b)| {
+    neg_v.sort_by(|&(_, _, ref score_a), &(_, _, ref score_b)| {
         score_b.sum.partial_cmp(&score_a.sum).expect("float sort")
     });
 
     let mut cutoff = 0;
-    for (i, &(_, ref score)) in pos_v.iter().enumerate() {
+    for (i, &(_, _, ref score)) in pos_v.iter().enumerate() {
         if score.sum <= 0.9 {
             break;
         }
         cutoff = i;
     }
     if cutoff == 0 {
-        println!("-- bad: pos={:?}/{}, {:?}/{}, neg={:?}/{}, {:?}/{}",
-                     str::from_utf8(&pos_v[0].0).unwrap(),
-                     pos_v[0].1.sum,
-                     str::from_utf8(&pos_v[1].0).unwrap(),
-                     pos_v[1].1.sum,
-                     str::from_utf8(&neg_v[0].0).unwrap(),
-                     neg_v[0].1.sum,
-                     str::from_utf8(&neg_v[1].0).unwrap(),
-                     neg_v[1].1.sum,);
+        info!("no matching seqs: pos={:?}/{}, {:?}/{}, neg={:?}/{}, {:?}/{}",
+                     str::from_utf8(&pos_v[0].1).unwrap(),
+                     pos_v[0].2.sum,
+                     str::from_utf8(&pos_v[1].1).unwrap(),
+                     pos_v[1].2.sum,
+                     str::from_utf8(&neg_v[0].1).unwrap(),
+                     neg_v[0].2.sum,
+                     str::from_utf8(&neg_v[1].1).unwrap(),
+                     neg_v[1].2.sum,);
         return None;
     }
     Some((
@@ -698,7 +705,7 @@ impl Individual for DyadMotif {
         let pos_sum: f64 = self.pos_seqs
             .clone()
             .split_iter()
-            .map(|&(ref seq, _)| {
+            .map(|&(_, ref seq, _)| {
                 self.motif.score(&seq).expect("score?").sum as f64
             })
             .collect::<Vec<f64>>(&pool.spawner())
@@ -708,7 +715,7 @@ impl Individual for DyadMotif {
         let neg_sum: f64 = self.neg_seqs
             .clone()
             .split_iter()
-            .map(|&(ref seq, _)| {
+            .map(|&(_, ref seq, _)| {
                 self.motif.score(&seq).expect("score?").sum as f64
             })
             .collect::<Vec<f64>>(&pool.spawner())
@@ -910,17 +917,43 @@ mod tests {
     #[test]
     fn test_info_content() {
 
-        let m = Motif::from( Array::from_vec(vec![ 1.0, 0.0, 0.0, 0.0,
-                                                   1.0, 0.0, 0.0, 0.0,
-                                                   1.0, 0.0, 0.0, 0.0, ])
-                             .into_shape((3, 4)).unwrap() );
-        assert_eq!( m.info_content(), 6.0 );
+        let m = Motif::from(
+            Array::from_vec(vec![
+                1.0,
+                0.0,
+                0.0,
+                0.0,
+                1.0,
+                0.0,
+                0.0,
+                0.0,
+                1.0,
+                0.0,
+                0.0,
+                0.0,
+            ]).into_shape((3, 4))
+                .unwrap(),
+        );
+        assert_eq!(m.info_content(), 6.0);
 
-        let m = Motif::from( Array::from_vec(vec![ 0.25, 0.25, 0.25, 0.25,
-                                                   0.25, 0.25, 0.25, 0.25,
-                                                   0.25, 0.25, 0.25, 0.25, ])
-                             .into_shape((3, 4)).unwrap() );
-        assert_eq!( m.info_content(), 0.0 );
+        let m = Motif::from(
+            Array::from_vec(vec![
+                0.25,
+                0.25,
+                0.25,
+                0.25,
+                0.25,
+                0.25,
+                0.25,
+                0.25,
+                0.25,
+                0.25,
+                0.25,
+                0.25,
+            ]).into_shape((3, 4))
+                .unwrap(),
+        );
+        assert_eq!(m.info_content(), 0.0);
 
     }
 
@@ -994,7 +1027,7 @@ mod tests {
 
         let mut p = motif.eval_file(&mut pool, POS_FNAME);
         let mut n = motif.eval_file(&mut pool, NEG_FNAME);
-        println!("p: {:?}", p.iter().map(|t| t.1.sum).collect::<Vec<f32>>());
+        println!("p: {:?}", p.iter().map(|t| t.2.sum).collect::<Vec<f32>>());
         let (pos_seqs, neg_seqs) = choose(&mut p, &mut n).expect("motifs found bad one (2)");
         println!("pos_seqs.len: {}", pos_seqs.len());
     }

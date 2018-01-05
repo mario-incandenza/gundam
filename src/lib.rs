@@ -143,7 +143,7 @@ pub extern "C" fn info_content(_dyads: *const c_void, idx: u32) -> f32 {
 pub extern "C" fn show_motif(_dyads: *const c_void, idx: u32) -> *const c_char {
     let dyads: &Vec<DyadMotif> = unsafe { mem::transmute(_dyads) };
 
-    CString::new( dyads[idx as usize].show_motif() )
+    CString::new(dyads[idx as usize].show_motif())
         .expect("get_dyad")
         .into_raw()
 }

@@ -27,5 +27,6 @@ if __name__ == '__main__':
         print '# original length:', orig_len
         for _, new_idx in means_idx:
             motif = G[new_idx]
-            print 'motif: {}, seq ct: {}'.format(motif['repr'], len(motif['pos_seqs']))
+            print 'motif: {}, seq ct: {}, indices: {}'.format(
+                motif['repr'], len(motif['pos_seqs']), [x[0] for x in motif['pos_seqs']] )
 
